@@ -13,19 +13,43 @@ import {
   Card,
   CardContent,
   IconButton,
-  useTheme
+  useTheme,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Divider
 } from '@mui/material';
 import AnimatedDrawer from '@/app/components/common/AnimatedDrawer';
 import { DrawerProvider } from '@/app/contexts/DrawerContext';
 import { useTranslation } from 'react-i18next';
-import { Add as AddIcon, Visibility as VisibilityIcon, Edit as EditIcon } from '@mui/icons-material';
+import { 
+  Add as AddIcon, 
+  Visibility as VisibilityIcon, 
+  Edit as EditIcon, 
+  Delete as DeleteIcon 
+} from '@mui/icons-material';
 import { useFormContext } from 'react-hook-form';
 import { PublicationStatus, ProductVariant, ProductVariantFormData } from '@/app/types/products';
-import { useCreateProduct, useFetchProductImages, useCreateProductVariant, useUpdateProductVariant, useDeleteProductVariant, useFetchProductVariants } from '@/app/hooks/api/products';
+import { useCreateProduct, useFetchProductImages, useCreateProductVariant, useUpdateProductVariant, useDeleteProductVariant, useFetchProductVariants, useFetchProductVariant } from '@/app/hooks/api/products';
 import { useFetchAttributes } from '@/app/hooks/api/attributes';
 import { AttributesFilter } from '@/app/types/attributes';
 import VariantForm from '@/app/components/admin/products/forms/VariantForm';
 import { VariantFormData, AttributeWithOptions, ProductImage } from './VariantForm.schema';
+
+interface OptionDetail {
+  id: number;
+  attribute_id: number;
+  attribute_name: string;
+  attribute_code: string;
+  option_label: string;
+  option_value: string;
+}
+
+interface ExtendedProductVariant extends ProductVariant {
+  options_detail: OptionDetail[];
+}
 
 interface AttributeValue {
   value: any;
@@ -47,10 +71,16 @@ export default function VariantTable({
   const [isDraftSaving, setIsDraftSaving] = useState(false);
   const [draftProductId, setDraftProductId] = useState<number | null>(productId || null);
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [activeSidebarItem, setActiveSidebarItem] = useState('view');
   const methods = useFormContext();
   const [drawerMode, setDrawerMode] = useState<'add' | 'edit' | 'view'>('add');
+  const [isLoadingVariant, setIsLoadingVariant] = useState(false);
   const drawerSidebarContent = {};
+
+  // Delete confirmation dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [variantToDelete, setVariantToDelete] = useState<ProductVariant | null>(null);
 
   // Create product mutation
   const createProductMutation = useCreateProduct();
@@ -67,6 +97,55 @@ export default function VariantTable({
   const { data: variantsData, isLoading: isVariantsLoading } = useFetchProductVariants(
     draftProductId || productId || null
   );
+
+  // Fetch single variant data when selectedVariantId changes
+  const { data: variantDetailData, isLoading: isVariantDetailLoading } = useFetchProductVariant(
+    draftProductId || productId || null,
+    selectedVariantId
+  );
+
+  // Log the selected variant ID and API request status
+  useEffect(() => {
+    console.group('Variant Detail API Request');
+    console.log('Selected Variant ID:', selectedVariantId);
+    console.log('Product ID:', draftProductId || productId);
+    console.log('Is Loading:', isVariantDetailLoading);
+    console.groupEnd();
+  }, [selectedVariantId, draftProductId, productId, isVariantDetailLoading]);
+
+  // Update selectedVariant when variantDetailData is loaded
+  useEffect(() => {
+    if (variantDetailData && !isVariantDetailLoading) {
+      console.group('Variant Detail Data Loaded');
+      console.log('Variant Detail Data:', variantDetailData);
+      console.log('Is Loading:', isVariantDetailLoading);
+      
+      // Process the options_detail array into the format expected by the form
+      const processedOptions: Record<string, any> = {};
+      
+      // Cast to ExtendedProductVariant to access options_detail with proper typing
+      const variantWithDetails = variantDetailData as ExtendedProductVariant;
+      
+      if (variantWithDetails.options_detail && Array.isArray(variantWithDetails.options_detail)) {
+        variantWithDetails.options_detail.forEach((option: OptionDetail) => {
+          // Map each option to its attribute_id
+          processedOptions[option.attribute_id] = option.id;
+        });
+      }
+      
+      // Create a processed variant object with the correct structure for the form
+      const processedVariant = {
+        ...variantDetailData,
+        options: processedOptions
+      };
+      
+      console.log('Processed Variant for Form:', processedVariant);
+      console.groupEnd();
+      
+      setSelectedVariant(processedVariant);
+      setIsLoadingVariant(false);
+    }
+  }, [variantDetailData, isVariantDetailLoading]);
 
   // Create a filter for fetching variant defining attributes
   const attributesFilter = useMemo<AttributesFilter>(() => {
@@ -282,8 +361,14 @@ export default function VariantTable({
       console.log('Processed variant data for API:', variantData);
       
       if (selectedVariant) {
-        // Update existing variant
-        await updateVariantMutation.mutateAsync(variantData);
+        // Update existing variant - set temp_images to empty array to avoid server-side error
+        const updateData = {
+          ...variantData,
+          temp_images: [] // Set to empty array when updating to avoid the server-side error
+        };
+        
+        console.log('Update variant data (with empty temp_images):', updateData);
+        await updateVariantMutation.mutateAsync(updateData);
         
         setNotification({
           open: true,
@@ -313,26 +398,48 @@ export default function VariantTable({
     }
   };
   
-  // Handle variant deletion
-  const handleDeleteVariant = async (variantId: number) => {
-    try {
-      await deleteVariantMutation.mutateAsync(variantId);
-      
-      setNotification({
-        open: true,
-        message: t('products.variants.deleteSuccess', 'Variant deleted successfully'),
-        severity: 'success'
-      });
-    } catch (error) {
-      console.error('Error deleting variant:', error);
-      setNotification({
-        open: true,
-        message: t('products.variants.deleteError', 'Error deleting variant'),
-        severity: 'error'
-      });
+  // Handle variant deletion with confirmation
+  const handleDeleteClick = (event: React.MouseEvent, variant: ProductVariant) => {
+    // Stop propagation to prevent the card click event from firing
+    event.stopPropagation();
+    
+    // Set the variant to delete and open the confirmation dialog
+    setVariantToDelete(variant);
+    setDeleteDialogOpen(true);
+  };
+  
+  // Confirm deletion
+  const confirmDelete = async () => {
+    if (variantToDelete) {
+      try {
+        await deleteVariantMutation.mutateAsync(variantToDelete.id);
+        
+        setNotification({
+          open: true,
+          message: t('products.variants.deleteSuccess', 'Variant deleted successfully'),
+          severity: 'success'
+        });
+        
+        // Close the dialog
+        setDeleteDialogOpen(false);
+        setVariantToDelete(null);
+      } catch (error) {
+        console.error('Error deleting variant:', error);
+        setNotification({
+          open: true,
+          message: t('products.variants.deleteError', 'Error deleting variant'),
+          severity: 'error'
+        });
+      }
     }
   };
   
+  // Cancel deletion
+  const cancelDelete = () => {
+    setDeleteDialogOpen(false);
+    setVariantToDelete(null);
+  };
+
   // Handle edit variant
   const handleEditVariant = (variant: ProductVariant) => {
     setSelectedVariant(variant);
@@ -341,9 +448,19 @@ export default function VariantTable({
     handleOpenDrawer();
   };
 
-  // Handle view variant
+  // Handle view variant - now fetches the latest data from API
   const handleViewVariant = (variant: ProductVariant) => {
-    setSelectedVariant(variant);
+    console.group('View Variant Clicked');
+    console.log('Variant:', variant);
+    console.log('Variant ID:', variant.id);
+    console.log('Product ID:', draftProductId || productId);
+    console.log('API Request will use Product ID:', draftProductId || productId || null);
+    console.log('API Request will use Variant ID:', variant.id);
+    console.log('API Endpoint:', `products/${draftProductId || productId}/variants/${variant.id}/`);
+    console.groupEnd();
+    
+    setIsLoadingVariant(true);
+    setSelectedVariantId(variant.id);
     setDrawerMode('view');
     setActiveSidebarItem('view');
     handleOpenDrawer();
@@ -424,7 +541,7 @@ export default function VariantTable({
               <Box sx={{ width: '20%', display: 'flex', alignItems: 'center' }}>
                 <Typography variant="subtitle2">{t('sku')}</Typography>
               </Box>
-              <Box sx={{ width: '25%', display: 'flex', alignItems: 'center' }}>
+              <Box sx={{ width: '20%', display: 'flex', alignItems: 'center' }}>
                 <Typography variant="subtitle2">{t('name')}</Typography>
               </Box>
               <Box sx={{ width: '15%', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -432,6 +549,9 @@ export default function VariantTable({
               </Box>
               <Box sx={{ width: '15%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                 <Typography variant="subtitle2">{t('status')}</Typography>
+              </Box>
+              <Box sx={{ width: '10%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <Typography variant="subtitle2">{t('actions')}</Typography>
               </Box>
             </Paper>
             
@@ -469,7 +589,7 @@ export default function VariantTable({
                         <Box sx={{ width: '20%', display: 'flex', alignItems: 'center' }}>
                           <Typography variant="body2">{variant.sku}</Typography>
                         </Box>
-                        <Box sx={{ width: '25%', display: 'flex', alignItems: 'center' }}>
+                        <Box sx={{ width: '20%', display: 'flex', alignItems: 'center' }}>
                           <Typography variant="body2">{variant.options_display || '-'}</Typography>
                         </Box>
                         <Box sx={{ width: '15%', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -481,6 +601,15 @@ export default function VariantTable({
                           <Typography variant="body2" fontWeight="medium">
                             {variant.is_active ? t('active') : t('inactive')}
                           </Typography>
+                        </Box>
+                        <Box sx={{ width: '10%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                          <IconButton 
+                            size="small" 
+                            color="error"
+                            onClick={(e) => handleDeleteClick(e, variant)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
                         </Box>
                       </Box>
                     </CardContent>
@@ -515,7 +644,11 @@ export default function VariantTable({
           } : undefined}
           >
           <Box >
-            {variantAttributes.length > 0 ? (
+            {isLoadingVariant || isVariantDetailLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                <CircularProgress />
+              </Box>
+            ) : variantAttributes.length > 0 ? (
               <VariantForm
                 onSubmit={handleVariantSubmit}
                 defaultValues={selectedVariant || undefined}
@@ -523,6 +656,7 @@ export default function VariantTable({
                 parentProductImages={productImagesData?.results || []}
                 isLoading={isAttributesLoading || isImagesLoading}
                 parentProductId={productIdForImages}
+                mode={drawerMode}
               />
             ) : (
               <Alert severity="warning">
@@ -544,6 +678,86 @@ export default function VariantTable({
             {notification.message}
           </Alert>
         </Snackbar>
+        
+        {/* Delete Confirmation Dialog */}
+        <Dialog
+          open={deleteDialogOpen}
+          onClose={cancelDelete}
+          aria-labelledby="delete-variant-dialog-title"
+          aria-describedby="delete-variant-dialog-description"
+        >
+          <DialogTitle id="delete-variant-dialog-title">
+            {t('products.variants.confirmDelete', 'Confirm Deletion')}
+          </DialogTitle>
+          <DialogContent>
+            <DialogContentText id="delete-variant-dialog-description" sx={{ mb: 2 }}>
+              {t('products.variants.deleteWarning', 'Are you sure you want to delete this variant? This action cannot be undone.')}
+            </DialogContentText>
+            
+            {variantToDelete && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  {t('products.variants.variantDetails', 'Variant Details')}:
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                
+                <Grid container spacing={2}>
+                  <Grid item xs={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      {t('sku')}:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={8}>
+                    <Typography variant="body2">
+                      {variantToDelete.sku}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      {t('name')}:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={8}>
+                    <Typography variant="body2">
+                      {variantToDelete.options_display || '-'}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      {t('price')}:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={8}>
+                    <Typography variant="body2">
+                      {variantToDelete.display_price}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      {t('status')}:
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={8}>
+                    <Typography variant="body2">
+                      {variantToDelete.is_active ? t('active') : t('inactive')}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={cancelDelete} color="primary">
+              {t('cancel')}
+            </Button>
+            <Button onClick={confirmDelete} color="error" variant="contained">
+              {t('delete')}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </DrawerProvider>
   );

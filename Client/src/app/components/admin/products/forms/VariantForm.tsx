@@ -40,6 +40,7 @@ export interface VariantFormProps {
   formId?: string;
   variantId?: number;
   parentProductId?: number;
+  mode?: 'view' | 'edit' | 'add';
 }
 
 export default function VariantForm({
@@ -50,7 +51,8 @@ export default function VariantForm({
   isLoading = false,
   formId = 'variant-form',
   variantId = -1,
-  parentProductId = -1
+  parentProductId = -1,
+  mode = 'add'
 }: VariantFormProps) {
   const { t } = useTranslation();
   
@@ -72,8 +74,8 @@ export default function VariantForm({
     resolver: zodResolver(variantSchema),
     defaultValues: {
       sku: '',
-      display_price: 0,
-      quantity_on_hand: 0,
+      display_price: undefined,
+      quantity_on_hand: undefined,
       is_active: true,
       status_override: null,
       options: {},
@@ -86,8 +88,8 @@ export default function VariantForm({
     if (defaultValues) {
       reset({
         sku: '',
-        display_price: 0,
-        quantity_on_hand: 0,
+        display_price: undefined,
+        quantity_on_hand: undefined,
         is_active: true,
         status_override: null,
         options: {},
@@ -98,6 +100,10 @@ export default function VariantForm({
 
   // Check if we have any attributes
   const hasAttributes = parentProductAttributes.length > 0;
+
+  // Determine if fields should be disabled
+  const isViewMode = mode === 'view';
+  const isFieldDisabled = isLoading || isViewMode;
 
   // Handle form submission with temp images
   const handleFormSubmit: SubmitHandler<VariantFormData> = (data) => {
@@ -135,7 +141,7 @@ export default function VariantForm({
                 size="small"
                 error={!!errors.sku}
                 helperText={errors.sku?.message}
-                disabled={isLoading}
+                disabled={isFieldDisabled}
               />
             )}
           />
@@ -162,7 +168,7 @@ export default function VariantForm({
                           fullWidth
                           size="small"
                           error={!!errors.options}
-                          disabled={isLoading}
+                          disabled={isFieldDisabled}
                         >
                           {attribute.options.map((option) => (
                             <MenuItem key={option.id} value={option.id}>
@@ -191,7 +197,7 @@ export default function VariantForm({
                         fullWidth
                         size="small"
                         error={!!errors.options}
-                        disabled={isLoading}
+                        disabled={isFieldDisabled}
                       />
                     )}
                   />
@@ -214,7 +220,7 @@ export default function VariantForm({
                         }}
                         error={!!errors.options}
                         onChange={(e) => field.onChange(Number(e.target.value))}
-                        disabled={isLoading}
+                        disabled={isFieldDisabled}
                       />
                     )}
                   />
@@ -237,7 +243,7 @@ export default function VariantForm({
                               error: !!errors.options,
                             }
                           }}
-                          disabled={isLoading}
+                          disabled={isFieldDisabled}
                         />
                       </LocalizationProvider>
                     )}
@@ -262,13 +268,13 @@ export default function VariantForm({
                             value={true} 
                             control={<Radio />} 
                             label={t('common.yes', 'Yes')}
-                            disabled={isLoading}
+                            disabled={isFieldDisabled}
                           />
                           <FormControlLabel 
                             value={false} 
                             control={<Radio />} 
                             label={t('common.no', 'No')}
-                            disabled={isLoading}
+                            disabled={isFieldDisabled}
                           />
                         </RadioGroup>
                         {errors.options && (
@@ -307,7 +313,7 @@ export default function VariantForm({
                               .join(', ');
                           }}
                           input={<OutlinedInput label={attribute.name} />}
-                          disabled={isLoading}
+                          disabled={isFieldDisabled}
                         >
                           {attribute.options.map((option) => (
                             <MenuItem key={option.id} value={option.id}>
@@ -342,11 +348,16 @@ export default function VariantForm({
                 type="number"
                 fullWidth
                 size="small"
-                inputProps={{ min: 0, step: 1 }}
                 error={!!errors.display_price}
                 helperText={errors.display_price?.message}
-                onChange={(e) => field.onChange(Number(e.target.value))}
-                disabled={isLoading}
+                // Ensure value is always a number
+                value={typeof field.value === 'string' ? parseFloat(field.value) || 0 : field.value}
+                // Force conversion to number on change
+                onChange={(e) => {
+                  const value = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                  field.onChange(isNaN(value) ? 0 : value);
+                }}
+                disabled={isFieldDisabled}
               />
             )}
           />
@@ -367,8 +378,14 @@ export default function VariantForm({
                 inputProps={{ min: 0, step: 1 }}
                 error={!!errors.quantity_on_hand}
                 helperText={errors.quantity_on_hand?.message}
-                onChange={(e) => field.onChange(Number(e.target.value))}
-                disabled={isLoading}
+                // Ensure value is always an integer
+                value={typeof field.value === 'string' ? parseInt(field.value, 10) || 0 : field.value}
+                // Force conversion to integer on change
+                onChange={(e) => {
+                  const value = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                  field.onChange(isNaN(value) ? 0 : value);
+                }}
+                disabled={isFieldDisabled}
               />
             )}
           />
@@ -387,7 +404,7 @@ export default function VariantForm({
                 apiEndpoint={entityEndpoints.productStatuses}
                 error={!!errors.status_override}
                 helperText={errors.status_override?.message}
-                disabled={isLoading}
+                disabled={isFieldDisabled}
                 value={field.value}
                 onChange={(value) => {
                   // Extract just the ID if an object is selected, otherwise use null
@@ -412,7 +429,7 @@ export default function VariantForm({
                   <Switch
                     checked={field.value}
                     onChange={(e) => field.onChange(e.target.checked)}
-                    disabled={isLoading}
+                    disabled={isFieldDisabled}
                   />
                 }
                 label={t('products.variants.isActive', 'Active')}

@@ -1162,7 +1162,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
                         owner_instance=variant,
                         owner_type='variant',
                         temp_image_data=temp_images,
-                        client_id=client_id
+                        tenant=client_id
                     )
                 except Exception as e:
                     logger.error(f"Error linking temporary images: {str(e)}")
@@ -1209,7 +1209,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
                         owner_instance=variant,
                         owner_type='variant',
                         temp_image_data=temp_images,
-                        client_id=instance.client_id
+                        tenant=instance.client_id
                     )
                 except Exception as e:
                     logger.error(f"Error linking temporary images: {str(e)}")
