@@ -31,13 +31,15 @@ import {
   StarBorder as StarBorderIcon,
   CloudUpload as CloudUploadIcon,
   Refresh as RefreshIcon,
-  Error as ErrorIcon
+  Error as ErrorIcon,
+  AutoFixHigh as EnhanceIcon
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { ImageKitProvider } from '@imagekit/next';
 
 // Import API hooks
 import { 
@@ -51,6 +53,9 @@ import { useUploadTemporaryImage, TemporaryUploadResponse } from '@/app/hooks/ap
 
 // Import Image Context
 import { useImageContext } from '@/app/contexts/ImageContext';
+
+// Import ImageKit components
+import ImageDialog, { ImageItem as ImageKitItem } from '@/app/components/ImageKIt.io/ImageDialog';
 
 // Define types and interfaces
 
@@ -459,15 +464,33 @@ const ImageManager = ({
     }
   }, [existingImages, tempImages, onTempImagesChange]);
   
+  // State for ImageKit.io dialog
+  const [imageKitDialogOpen, setImageKitDialogOpen] = useState<boolean>(false);
+  const [selectedFilesForImageKit, setSelectedFilesForImageKit] = useState<ImageKitItem[]>([]);
+
   // Handle file drop
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!acceptedFiles.length) return;
     
+    // Convert files to ImageKitItems and open the ImageKit dialog
+    const imageKitItems: ImageKitItem[] = Array.from(acceptedFiles).map(file => ({
+      url: URL.createObjectURL(file),
+      file: file
+    }));
+    
+    setSelectedFilesForImageKit(imageKitItems);
+    setImageKitDialogOpen(true);
+  }, []);
+
+  // Handle direct upload of original images (without AI enhancement)
+  const handleUploadOriginalImages = async (files: File[]) => {
+    if (!files.length) return;
+    
     // Process each file
     const newTempImages: TemporaryImage[] = [];
     
-    for (let i = 0; i < acceptedFiles.length; i++) {
-      const file = acceptedFiles[i];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       const tempId = `temp_${Date.now()}_${i}`;
       
       // Create a temporary URL for preview
@@ -547,7 +570,33 @@ const ImageManager = ({
         });
       }
     }
-  }, [allImages.length, t, uploadTempImage]);
+  };
+  
+  // Handle upload of transformed images from ImageKit.io
+  const handleUploadTransformedImage = async (originalFile: File, transformedUrl: string) => {
+    try {
+      // Convert the transformed URL to a File object
+      const response = await fetch(transformedUrl);
+      const blob = await response.blob();
+      const transformedFile = new File([blob], originalFile.name, { type: blob.type });
+      
+      // Upload the transformed file
+      await handleUploadOriginalImages([transformedFile]);
+      
+      setSnackbar({
+        open: true,
+        message: t('admin.products.images.ai_enhanced_success'),
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error processing transformed image:', error);
+      setSnackbar({
+        open: true,
+        message: t('admin.products.images.ai_enhanced_error'),
+        severity: 'error'
+      });
+    }
+  };
   
   // Configure dropzone
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -844,64 +893,66 @@ const ImageManager = ({
   };
   
   return (
-    <Box sx={{ width: '100%' }}>
-      {/* Dropzone for uploading images */}
-      <Paper
-        {...getRootProps()}
-        sx={{
-          p: 2,
-          mb: 2,
-          border: '2px dashed',
-          borderColor: isDragActive ? 'primary.main' : 'divider',
-          backgroundColor: isDragActive ? 'action.hover' : 'background.paper',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          '&:hover': {
-            borderColor: 'primary.main',
-            backgroundColor: 'action.hover'
-          }
-        }}
-      >
-        <input {...getInputProps()} />
-        <Box sx={{ 
-          display: 'flex', 
-          flexDirection: 'column', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          textAlign: 'center',
-          p: 2 
-        }}>
-          <CloudUploadIcon sx={{ 
-            fontSize: 48, 
-            color: 'primary.main', 
-            mb: 1,
-            alignSelf: 'center'
-          }} />
-          <Typography variant="h6" gutterBottom sx={{ textAlign: 'center', width: '100%' }}>
-            {isDragActive
-              ? t('admin.products.images.drop_files')
-              : t('admin.products.images.drag_drop')}
-          </Typography>
-          <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', width: '100%', mb: 2 }}>
-            {t('admin.products.images.file_requirements')}
-          </Typography>
-          <Button
-            variant="contained"
-            color="primary"
-            sx={{ alignSelf: 'center' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              // Trigger the hidden file input click event
-              const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
-              if (fileInput) {
-                fileInput.click();
-              }
-            }}
-          >
-            {t('admin.products.images.browse_files')}
-          </Button>
-        </Box>
-      </Paper>
+    <ImageKitProvider urlEndpoint="https://ik.imagekit.io/Manishpk">
+      <Box sx={{ width: '100%' }}>
+        {/* Dropzone for uploading images */}
+        <Paper
+          {...getRootProps()}
+          sx={{
+            p: 2,
+            mb: 2,
+            border: '2px dashed',
+            borderColor: isDragActive ? 'primary.main' : 'divider',
+            backgroundColor: isDragActive ? 'action.hover' : 'background.paper',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            '&:hover': {
+              borderColor: 'primary.main',
+              backgroundColor: 'action.hover'
+            }
+          }}
+        >
+          <input {...getInputProps()} />
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            textAlign: 'center',
+            p: 2 
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <CloudUploadIcon sx={{ fontSize: 48, color: 'primary.main' }} />
+              <EnhanceIcon sx={{ fontSize: 36, color: 'secondary.main' }} />
+            </Box>
+            <Typography variant="h6" gutterBottom sx={{ textAlign: 'center', width: '100%' }}>
+              {isDragActive
+                ? t('admin.products.images.drop_files')
+                : t('admin.products.images.drag_drop')}
+            </Typography>
+            <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center', width: '100%', mb: 2 }}>
+              {t('admin.products.images.file_requirements')}
+            </Typography>
+            <Typography variant="body2" color="secondary" sx={{ textAlign: 'center', width: '100%', mb: 2 }}>
+              {t('admin.products.images.ai_enhancement_available')}
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              sx={{ alignSelf: 'center' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Trigger the hidden file input click event
+                const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+                if (fileInput) {
+                  fileInput.click();
+                }
+              }}
+            >
+              {t('admin.products.images.browse_files')}
+            </Button>
+          </Box>
+        </Paper>
       
       {/* Loading indicator */}
       {isLoadingImages && (
@@ -1005,7 +1056,36 @@ const ImageManager = ({
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </Box>
+
+      {/* ImageKit.io Dialog */}
+      <ImageDialog
+        open={imageKitDialogOpen}
+        onClose={() => {
+          setImageKitDialogOpen(false);
+          // Clean up object URLs to prevent memory leaks
+          selectedFilesForImageKit.forEach(item => {
+            if (item.url.startsWith('blob:')) {
+              URL.revokeObjectURL(item.url);
+            }
+          });
+          setSelectedFilesForImageKit([]);
+        }}
+        images={selectedFilesForImageKit}
+        onUseOriginal={(imageItem) => {
+          // Upload the original image directly
+          handleUploadOriginalImages([imageItem.file]);
+          // Close the dialog
+          setImageKitDialogOpen(false);
+        }}
+        onUseTransformed={(imageItem, transformedUrl) => {
+          // Upload the transformed image
+          handleUploadTransformedImage(imageItem.file, transformedUrl);
+          // Close the dialog
+          setImageKitDialogOpen(false);
+        }}
+      />
+      </Box>
+    </ImageKitProvider>
   );
 };
 

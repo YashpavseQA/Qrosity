@@ -400,10 +400,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                 await onSubmit(result);
                             }
                             
-                            // Redirect if no callback provided
-                            if (!onSubmit) {
-                                router.push('/admin/products');
-                            }
+                           
                         } catch (error) {
                             console.error('Direct API call failed:', error);
                             setNotification({
