@@ -1166,6 +1166,8 @@ class ProductVariantSerializer(serializers.ModelSerializer):
         This method handles the creation of a ProductVariant and processes any
         temporary images, linking them to the newly created variant.
         """
+        logger.critical("Entering VariantSerializer create. Validated data keys: %s", validated_data.keys())
+        
         try:
             # Extract options from validated data
             options_data = []
@@ -1176,6 +1178,9 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             temp_images = None
             if 'temp_images' in validated_data:
                 temp_images = validated_data.pop('temp_images')
+                logger.critical("Popped temp_images data: %s", temp_images)
+            else:
+                logger.critical("No temp_images found in validated_data")
                 
             # Get tenant and product from context
             request = self.context.get('request')
@@ -1195,33 +1200,39 @@ class ProductVariantSerializer(serializers.ModelSerializer):
                 )
             
             # Create the variant
-            logger.info(f"Creating variant for product {product_id} with data: {validated_data}")
+            logger.critical(f"Creating variant for product {product_id} with data: {validated_data}")
             variant = ProductVariant.objects.create(
                 product_id=product_id,
                 **validated_data
             )
+            logger.critical("Created Variant instance with ID: %s", variant.id)
             
             # Set options
             variant.options.set(options_data)
-            logger.info(f"Set options for variant {variant.id}: {[o.id for o in options_data]}")
+            logger.critical("Set options for variant ID: %s with options: %s", variant.id, [o.id for o in options_data])
             
             # Process temporary images
             if temp_images:
+                logger.critical("Calling link_temporary_images for variant ID %s with owner_type='variant'", variant.id)
                 try:
-                    logger.info(f"Linking {len(temp_images)} temporary images to variant {variant.id}")
                     link_temporary_images(
                         owner_instance=variant,
                         owner_type='variant',
                         temp_image_data=temp_images,
                         tenant=client_id
                     )
+                    logger.critical("Finished calling link_temporary_images for variant ID %s", variant.id)
                 except Exception as e:
+                    logger.critical("ERROR calling link_temporary_images for variant ID %s: %s", variant.id, e, exc_info=True)
                     logger.error(f"Error linking temporary images: {str(e)}")
                     raise serializers.ValidationError(f"Error processing images: {str(e)}")
+            else:
+                logger.critical("No temp_images data found for variant ID %s.", variant.id)
             
             return variant
             
         except Exception as e:
+            logger.critical(f"Error in create method: {str(e)}", exc_info=True)
             logger.error(f"Error in create method: {str(e)}")
             raise
 

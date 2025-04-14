@@ -893,7 +893,7 @@ const ImageManager = ({
   };
   
   return (
-    <ImageKitProvider urlEndpoint="https://ik.imagekit.io/Manishpk">
+    <ImageKitProvider urlEndpoint="https://ik.imagekit.io/lvioy81zs">
       <Box sx={{ width: '100%' }}>
         {/* Dropzone for uploading images */}
         <Paper

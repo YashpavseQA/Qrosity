@@ -59,11 +59,17 @@ interface AttributeValue {
 interface VariantTableProps {
   productId?: number;
   variantDefiningAttributes?: number[];
+  viewMode?: boolean;
+  onEditModeRequest?: () => void; // Callback to request parent form to enter edit mode
+  onProductIdChange?: (id: number) => void; // Callback to update parent form's product ID
 }
 
 export default function VariantTable({
   productId,
-  variantDefiningAttributes
+  variantDefiningAttributes,
+  viewMode = false,
+  onEditModeRequest,
+  onProductIdChange
 }: VariantTableProps) {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -232,6 +238,21 @@ export default function VariantTable({
   };
 
   const handleAddVariant = async () => {
+    // Request parent form to enter edit mode if callback is provided
+    if (onEditModeRequest) {
+      console.log('Requesting parent form to enter edit mode');
+      onEditModeRequest();
+    }
+    
+    // If we already have a product ID, pass it to the parent form
+    if (draftProductId && onProductIdChange) {
+      console.log('Updating parent form product ID to:', draftProductId);
+      onProductIdChange(draftProductId);
+    } else if (productId && onProductIdChange) {
+      console.log('Updating parent form product ID to:', productId);
+      onProductIdChange(productId);
+    }
+    
     if (draftProductId) {
       console.log('Opening variant modal for existing draft product:', draftProductId);
       console.log('Variant defining attributes:', variantDefiningAttributes);
@@ -302,6 +323,12 @@ export default function VariantTable({
       const result = await createProductMutation.mutateAsync(apiPayload as any);
       
       setDraftProductId(result.id);
+      
+      // Update parent form's product ID if callback is provided
+      if (onProductIdChange && result.id) {
+        console.log('Updating parent form product ID after creation to:', result.id);
+        onProductIdChange(result.id);
+      }
       
       setNotification({
         open: true,
@@ -473,7 +500,7 @@ export default function VariantTable({
     }
     
     // Only show icons in edit or view mode
-    return [
+    const icons = [
       { 
         id: 'view', 
         icon: <VisibilityIcon />, 
@@ -482,8 +509,12 @@ export default function VariantTable({
           setDrawerMode('view');
           setActiveSidebarItem('view');
         }
-      },
-      { 
+      }
+    ];
+    
+    // Only add edit icon if not in view mode
+    if (!viewMode) {
+      icons.push({ 
         id: 'edit', 
         icon: <EditIcon />, 
         tooltip: t('edit'), 
@@ -491,9 +522,11 @@ export default function VariantTable({
           setDrawerMode('edit');
           setActiveSidebarItem('edit');
         }
-      }
-    ];
-  }, [drawerMode, t]);
+      });
+    }
+    
+    return icons;
+  }, [drawerMode, t, viewMode]);
 
   return (
     <DrawerProvider>
@@ -504,7 +537,7 @@ export default function VariantTable({
             variant="contained" 
             startIcon={isDraftSaving ? <CircularProgress size={20} /> : <AddIcon />}
             onClick={handleAddVariant}
-            disabled={isDraftSaving}
+            disabled={isDraftSaving || viewMode}
           >
             {draftProductId 
               ? t('products.variants.addVariant') 
@@ -607,6 +640,7 @@ export default function VariantTable({
                             size="small" 
                             color="error"
                             onClick={(e) => handleDeleteClick(e, variant)}
+                            disabled={viewMode}
                           >
                             <DeleteIcon fontSize="small" />
                           </IconButton>

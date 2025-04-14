@@ -71,6 +71,7 @@ interface FormData extends Omit<ProductFormData, 'temp_images'> {
     parent_temp_images: TemporaryImageData[];
     attribute_groups: number[];
     variant_defining_attributes: number[];
+    organizationTags: string[];
 }
 
 interface ExtendedProductDetail extends ProductDetail {
@@ -257,6 +258,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
             // Additional fields
             faqs: details.faqs || [],
             tags: details.tags || [],
+            organizationTags: [], // New field for organization tags
             temp_images: [],
             parent_temp_images: [],
             publication_status: details.publication_status || PublicationStatus.DRAFT,
@@ -321,22 +323,49 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
 
    
 
-    // Render tag input field with proper typing
+    // Render tag input field with proper typing - generic version for any string array field
     const renderTagInput = ({ 
         field, 
         label, 
         helperText 
     }: { 
-        field: ControllerRenderProps<FormData, 'tags'>, 
+        field: { value: string[], onChange: (value: string[]) => void }, 
         label: string, 
         helperText: string 
     }) => (
-        <Autocomplete
+        <Autocomplete<string, true, boolean, true>
             multiple
             freeSolo
             options={[]}
             value={field.value || []}
-            onChange={(_, newValue: string[]) => field.onChange(newValue)}
+            onChange={(event, value, reason, details) => {
+                // In view mode, prevent changes to the tags
+                if (!viewMode) {
+                    field.onChange(value as string[]);
+                }
+            }}
+            // Disable chip deletion in view mode
+            clearOnBlur={!viewMode}
+            disableClearable={viewMode}
+            readOnly={viewMode}
+            // Use custom renderTags only when in view mode
+            {...(viewMode && {
+                renderTags: (value, getTagProps) => 
+                    value.map((option, index) => {
+                        // Get the tag props first
+                        const tagProps = getTagProps({ index });
+                        
+                        // In view mode, create a chip without delete functionality
+                        return (
+                            <Chip
+                                {...tagProps}
+                                label={option}
+                                // Override onDelete to disable deletion in view mode
+                                onDelete={undefined}
+                            />
+                        );
+                    })
+            })}
             renderInput={(params) => (
                 <TextField
                     {...params}
@@ -484,8 +513,8 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                         formData.temp_images = [...formData.parent_temp_images];
                                     }
                                     
-                                    // Create a clean payload without parent_temp_images
-                                    const { parent_temp_images, ...cleanFormData } = formData;
+                                    // Create a clean payload without parent_temp_images and organizationTags
+                                    const { parent_temp_images, organizationTags, ...cleanFormData } = formData;
                                     
                                     const apiPayload = {
                                         ...cleanFormData,
@@ -595,8 +624,8 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                 formData.temp_images = [...formData.parent_temp_images];
                             }
                             
-                            // Create a clean payload without parent_temp_images
-                            const { parent_temp_images, ...cleanFormData } = formData;
+                            // Create a clean payload without parent_temp_images and organizationTags
+                            const { parent_temp_images, organizationTags, ...cleanFormData } = formData;
                             
                             const apiPayload = {
                                 ...cleanFormData,
@@ -1166,14 +1195,43 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
 
                   {/* Variant Table Section - Only show for products with variant attributes */}
                   
-                    <Paper sx={{ mb: 3, p: 3 }}>
                     {methods.watch('product_type') === ProductType.PARENT && (
-                        <VariantTable  
-                          productId={productId ? parseInt(productId) : undefined}
-                          variantDefiningAttributes={methods.watch('variant_defining_attributes')}
-                        />
+                        <Paper sx={{ mb: 3, p: 3 }}>
+                            <VariantTable  
+                                productId={productId ? parseInt(productId) : undefined}
+                                variantDefiningAttributes={methods.watch('variant_defining_attributes')}
+                                viewMode={viewMode}
+                                onEditModeRequest={() => {
+                                    // Put the form in edit mode when requested by VariantTable
+                                    console.log('Entering edit mode from VariantTable request');
+                                    // Ensure we're in edit mode and not view mode
+                                    setViewMode(false);
+                                    
+                                    // Log the current state to debug
+                                    console.log('Form state after edit mode request:', { 
+                                        viewMode: false, 
+                                        currentProductId,
+                                        productId,
+                                        shouldShowEditButton: !!currentProductId && currentProductId !== '0'
+                                    });
+                                }}
+                                onProductIdChange={(id) => {
+                                    // Update the currentProductId when a product is created or selected in VariantTable
+                                    console.log('Updating currentProductId from VariantTable:', id);
+                                    setCurrentProductId(id.toString());
+                                    
+                                    // Log the updated state
+                                    console.log('Updated form state after product ID change:', {
+                                        newProductId: id,
+                                        currentProductId: id.toString(),
+                                        viewMode: false,
+                                        shouldShowEditButton: true
+                                    });
+                                }}
+                            />
+                        </Paper>
+
                     )}
-                    </Paper>
                   
 
                     {/* SEO Information Section */}
@@ -1233,16 +1291,18 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                     </Paper>
 
                     {/* FAQs Section */}
-                    <Box sx={{ mt: 4 }}>
+                    <Paper  sx={{ p: 3, mb: 3 }}>
+                     
+                        <Box sx={{ mb: 2 , display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Typography variant="h6" gutterBottom>
                             {t('products.faqs.title')}
                         </Typography>
-                        <Box sx={{ mb: 2 }}>
                             <Button
                                 startIcon={<AddIcon />}
                                 onClick={handleAddFaq}
                                 variant="outlined"
                                 size="small"
+                                disabled={viewMode}
                             >
                                 {t('products.faqs.add')}
                             </Button>
@@ -1256,6 +1316,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             size="small"
                                             onClick={() => handleRemoveFaq(index)}
                                             aria-label={t('products.faqs.remove')}
+                                            disabled={viewMode}
                                         >
                                             <DeleteIcon />
                                         </IconButton>
@@ -1299,7 +1360,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                 </Grid>
                             </Box>
                         ))}
-                    </Box>
+                    </Paper>
 
                 </Grid>
 
@@ -1447,16 +1508,16 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                             {t('productOrganization')}
                         </Typography>
                         <Grid container spacing={2}>
-                             {/* Tags */}
+                             {/* Organization Tags - separate from regular tags */}
                             <Grid item xs={12}>
                                 <Controller
-                                    name="tags"
+                                    name="organizationTags"
                                     control={methods.control}
                                     defaultValue={[]}
                                     render={({ field, fieldState: { error } }) => renderTagInput({
                                         field,
-                                        label: t('products.form.fields.tags.label', 'Tags'),
-                                        helperText: error?.message || t('products.form.fields.tags.helper', 'Enter tags separated by commas'),
+                                        label: t('products.form.fields.organizationTags.label', 'Organization Tags'),
+                                        helperText: error?.message || t('products.form.fields.organizationTags.helper', 'Enter organization tags separated by commas'),
                                     })}
                                     disabled={viewMode}
                                 />

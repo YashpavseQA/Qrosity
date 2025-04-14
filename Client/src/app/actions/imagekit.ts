@@ -4,9 +4,9 @@ import ImageKit from 'imagekit';
 
 // Initialize ImageKit with the user's credentials
 const imagekit = new ImageKit({
-  publicKey: process.env.IMAGEKIT_PUBLIC_KEY || 'public_kU8iEVfhe2pdaLsdAoKmnNsTFh8=',
-  privateKey: process.env.IMAGEKIT_PRIVATE_KEY || 'private_Pv7UQ8neeLGB2lvQP4ee9lTimSg=',
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT || 'https://ik.imagekit.io/Manishpk'
+  publicKey: process.env.IMAGEKIT_PUBLIC_KEY || 'public_4LCqo0j/Bj3x3r+La+owmYboOi4=',
+  privateKey: process.env.IMAGEKIT_PRIVATE_KEY || 'private_lUwavdT/DF+PaLkcsGKhwwWRLbM=',
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT || 'https://ik.imagekit.io/lvioy81zs'
 });
 
 interface TransformImageParams {
