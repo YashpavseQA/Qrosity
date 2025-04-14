@@ -41,6 +41,8 @@ import VariantTable from './VariantTable';
 
 // --- API HOOKS ---
 import { useCreateProduct, useUpdateProduct } from '@/app/hooks/api/products';
+import api, { apiEndpoints } from '@/lib/api';
+import { useQueryClient } from '@tanstack/react-query';
 import EntityAutocomplete from '@/app/components/common/Autocomplete/EntityAutocomplete';
 import { entityEndpoints } from '@/app/components/common/Autocomplete/apiEndpoints';
 import ImageManager from './ImageManager.new';
@@ -58,6 +60,7 @@ interface ProductFormProps {
         data_type: string;
         validation_rules?: Record<string, any>;
     }>;
+    initialViewMode?: boolean;
 }
 
 // Extended form data type
@@ -74,9 +77,10 @@ interface ExtendedProductDetail extends ProductDetail {
     attribute_groups?: number[];
 }
 
-const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, attributes = [] }: ProductFormProps) => {
+const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, attributes = [], initialViewMode = false }: ProductFormProps) => {
     const { t } = useTranslation();
     const router = useRouter();
+    const queryClient = useQueryClient();
     
     // State for selected category - used for subcategory filtering
     const [selectedCategory, setSelectedCategory] = useState<any>(null);
@@ -92,6 +96,32 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
         severity: 'info'
     });
     
+    // State to control view/edit mode
+    const [viewMode, setViewMode] = useState<boolean>(initialViewMode || !!productId);
+    
+    // State to track the current product ID (from props or after creation)
+    const [currentProductId, setCurrentProductId] = useState<string | undefined>(productId);
+    
+    // Update currentProductId when productId prop changes
+    useEffect(() => {
+        if (productId) {
+            setCurrentProductId(productId);
+        }
+    }, [productId]);
+    
+    // Debug log for viewMode state
+    useEffect(() => {
+        console.log('ProductForm state:', { 
+            productId, 
+            currentProductId,
+            viewMode, 
+            isEditMode, 
+            defaultValues: !!defaultValues,
+            productIdType: typeof productId,
+            productIdValue: productId
+        });
+    }, [productId, currentProductId, viewMode, isEditMode, defaultValues]);
+    
     // Draft state logic
     const [draftProductId, setDraftProductId] = useState<number | null>(
         defaultValues?.publication_status === PublicationStatus.DRAFT && defaultValues?.id ? defaultValues.id : null
@@ -100,7 +130,61 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
     
     // API mutations
     const createProductMutation = useCreateProduct();
-    const updateProductMutation = useUpdateProduct(parseInt(productId || '0'));
+    
+    // Log when productId changes to help with debugging
+    useEffect(() => {
+        if (productId) {
+            console.log('Product ID for update:', productId);
+        }
+    }, [productId]);
+    
+    // Make sure we're using the correct product ID for updates
+    // We need to ensure the productId is a valid number
+    const productIdNumber = productId ? parseInt(productId) : 0;
+    const updateProductMutation = useUpdateProduct(productIdNumber);
+    
+    // Function to directly update a product using the API
+    const updateProduct = async (data: any, id: number) => {
+        console.log('Direct API update for product ID:', id);
+        console.log('API endpoint URL:', apiEndpoints.products.detail(id));
+        
+        // Log the request headers and method
+        console.log('Request method: PUT');
+        
+        try {
+            // No need to include the ID in the payload as it's already in the URL
+            // The server identifies which product to update based on the URL, not the payload
+            const updatePayload = {
+                ...data
+                // Don't add ID to payload - it's not expected by the server
+            };
+            
+            console.log('Final update payload with ID:', updatePayload);
+            
+            // Make the API call with explicit PUT method
+            const response = await api.put(apiEndpoints.products.detail(id), updatePayload);
+            
+            console.log('Update response status:', response.status);
+            console.log('Update response data:', response.data);
+            
+            if (response.data && response.data.id) {
+                console.log('Updated product ID from response:', response.data.id);
+                // Check if the returned ID matches the one we sent
+                if (response.data.id !== id) {
+                    console.warn('Warning: Returned product ID does not match the ID we sent for update');
+                }
+            }
+            
+            return response.data;
+        } catch (error: any) {
+            console.error('Direct update error:', error);
+            if (error.response) {
+                console.error('Error response status:', error.response.status);
+                console.error('Error response data:', error.response.data);
+            }
+            throw error;
+        }
+    };
 
     // Map product details to form data
     const mapProductDetailsToFormData = (details: ExtendedProductDetail): FormData => {
@@ -260,6 +344,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                     helperText={helperText}
                     variant="outlined"
                     fullWidth
+                    disabled={viewMode}
                 />
             )}
         />
@@ -292,8 +377,13 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
             Object.entries(formData).forEach(([key, value]) => {
                 methods.setValue(key as keyof FormData, value);
             });
+            
+            // If we have a productId and defaultValues, set the selected category
+            if (productId && defaultValues.category) {
+                setSelectedCategory(defaultValues.category);
+            }
         }
-    }, [defaultValues, methods.setValue]);
+    }, [defaultValues, methods.setValue, productId]);
 
     // Watch values for conditional logic
     const isInventoryTrackingEnabled = methods.watch('inventory_tracking_enabled');
@@ -314,13 +404,157 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
         <form onSubmit={(e) => e.preventDefault()} noValidate>
             {/* Form Actions */}
             <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-                <Button
-                    type="button"
-                    variant="contained"
-                    color="primary"
-                    disabled={methods.formState.isSubmitting}
+                {/* Edit button - should appear when in view mode */}
+                {viewMode && (
+                    <Button
+                        type="button"
+                        variant="outlined"
+                        color="primary"
+                        startIcon={<EditIcon />}
+                        onClick={() => {
+                            console.log('Edit button clicked - switching to edit mode');
+                            setViewMode(false);
+                            console.log('After setViewMode(false):', { viewMode: false, productId });
+                        }}
+                    >
+                        {t('products.form.edit', 'Edit Product')}
+                    </Button>
+                )}
+                
+                {/* Save button - different versions for create vs update */}
+                {!viewMode && (
+                    // Debug which condition is being evaluated
+                    console.log('Button rendering condition:', { 
+                        productId, 
+                        currentProductId,
+                        productIdType: typeof currentProductId, 
+                        productIdTruthy: !!currentProductId,
+                        viewMode,
+                        productIdNumberCheck: currentProductId ? parseInt(currentProductId) > 0 : false
+                    }),
+                    
+                    // Check if we have a valid product ID (for update)
+                    // Use currentProductId which tracks both initial productId and newly created IDs
+                    (!!currentProductId && currentProductId !== '0') ? (
+                        // Update button for existing products
+                        <Button
+                            type="button"
+                            variant="contained"
+                            color="success"
+                            disabled={methods.formState.isSubmitting}
+                            startIcon={methods.formState.isSubmitting ? <CircularProgress size={20} /> : <SaveIcon />}
+                            onClick={async () => {
+                                // Debug which button was clicked
+                                console.log('UPDATE button clicked for existing product with ID:', productId);
+                                console.log('Update button clicked');
+                                
+                                try {
+                                    // Get current form values
+                                    const formData = methods.getValues();
+                                    console.log('Current form values for update:', formData);
+                                    
+                                    // Process attribute values directly
+                                    const processedAttributeValues = Object.entries(formData.attributes || {})
+                                        .filter(([attributeId, attr]) => {
+                                            // Skip deleted attributes
+                                            if (attr.is_deleted) return false;
+                                            
+                                            // Skip null/undefined values
+                                            if (attr.value === null || attr.value === undefined) return false;
+                                            
+                                            // Skip empty strings
+                                            if (attr.value === '') return false;
+                                            
+                                            // Skip variant-defining attributes
+                                            const attrId = Number(attributeId);
+                                            if (formData.variant_defining_attributes && 
+                                                formData.variant_defining_attributes.includes(attrId)) {
+                                                return false;
+                                            }
+                                            
+                                            return true;
+                                        })
+                                        .map(([attributeId, attr]) => ({
+                                            attribute: Number(attributeId),
+                                            value: attr.value
+                                        }));
+                                    
+                                    // Transfer parent_temp_images to temp_images if needed
+                                    if (formData.parent_temp_images && formData.parent_temp_images.length > 0) {
+                                        formData.temp_images = [...formData.parent_temp_images];
+                                    }
+                                    
+                                    // Create a clean payload without parent_temp_images
+                                    const { parent_temp_images, ...cleanFormData } = formData;
+                                    
+                                    const apiPayload = {
+                                        ...cleanFormData,
+                                        attribute_values_input: processedAttributeValues,
+                                        variant_defining_attributes: formData.variant_defining_attributes || [],
+                                        attribute_groups: formData.attribute_groups || [],
+                                        publication_status: PublicationStatus.ACTIVE
+                                    };
+                                    
+                                    console.log('Update API payload:', apiPayload);
+                                    
+                                    // Double check that we have a valid product ID
+                                    const updateId = currentProductId ? parseInt(currentProductId) : (productId ? parseInt(productId) : 0);
+                                    console.log('Updating product with ID:', updateId);
+                                    
+                                    // No need to add ID to the payload - it's already in the URL
+                                    // The server identifies which product to update based on the URL
+                                    const payloadWithId = {
+                                        ...apiPayload
+                                        // Don't add ID to payload - it's not expected by the server
+                                    };
+                                    console.log('Using product ID in URL:', updateId);
+                                    
+                                    // Use direct API call to ensure we're using the correct ID
+                                    const result = await updateProduct(payloadWithId, updateId);
+                                    
+                                    // Invalidate queries to refresh data
+                                    queryClient.invalidateQueries({ queryKey: ['products'] });
+                                    queryClient.invalidateQueries({ queryKey: ['product', updateId] });
+                                    
+                                    console.log('Update successful, result:', result);
+                                    
+                                    // Show success message
+                                    setNotification({
+                                        open: true,
+                                        message: t('products.form.updateSuccess', 'Product updated successfully'),
+                                        severity: 'success'
+                                    });
+                                    
+                                    // Set view mode after successful update
+                                    setViewMode(true);
+                                    
+                                    // Call onSubmit callback if provided
+                                    if (onSubmit && result) {
+                                        await onSubmit(result);
+                                    }
+                                } catch (error) {
+                                    console.error('Update failed:', error);
+                                    setNotification({
+                                        open: true,
+                                        message: t('products.form.error', 'An error occurred while updating the product'),
+                                        severity: 'error'
+                                    });
+                                }
+                            }}
+                        >
+                            {methods.formState.isSubmitting ? t('products.form.editing', 'Editing...') : t('products.form.update', 'Edit Changes')}
+                        </Button>
+                    ) : (
+                        // Create button for new products
+                        <Button
+                            type="button"
+                            variant="contained"
+                            color="primary"
+                            disabled={methods.formState.isSubmitting}
                     startIcon={methods.formState.isSubmitting ? <CircularProgress size={20} /> : <SaveIcon />}
                     onClick={async () => {
+                        // Debug which button was clicked
+                        console.log('CREATE button clicked for new product (no ID)');
                         console.log('Save button clicked manually');
                         
                         try {
@@ -372,28 +606,47 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                 publication_status: PublicationStatus.ACTIVE
                             };
                             
+                            // For update operations, we don't need to include the ID in the payload
+                            // The ID is already included in the API endpoint URL
+                            if (productId) {
+                                console.log('Using product ID in endpoint:', productId);
+                            }
+                            
                             console.log('Bypassing validation - Direct API payload:', apiPayload);
                             
-                            // Submit directly to API
-                            let result;
-                            if (isEditMode && productId) {
-                                console.log('Directly calling updateProductMutation.mutateAsync');
-                                result = await updateProductMutation.mutateAsync(apiPayload as any);
-                            } else {
-                                console.log('Directly calling createProductMutation.mutateAsync');
-                                result = await createProductMutation.mutateAsync(apiPayload as any);
-                            }
+                            // This is now only for creating new products
+                            console.log('Directly calling createProductMutation.mutateAsync');
+                            const result = await createProductMutation.mutateAsync(apiPayload);
                             
                             console.log('Direct API call successful, result:', result);
                             
                             // Show success message
                             setNotification({
                                 open: true,
-                                message: isEditMode 
+                                message: productId 
                                     ? t('products.form.updateSuccess', 'Product updated successfully') 
                                     : t('products.form.createSuccess', 'Product created successfully'),
                                 severity: 'success'
                             });
+                            
+                            // Handle post-save actions
+                            if (result && result.id) {
+                                if (!productId) {
+                                    // This was a new product creation
+                                    console.log('New product created with ID:', result.id);
+                                    // Store the new product ID so we can use it for editing
+                                    setCurrentProductId(result.id.toString());
+                                } else {
+                                    // This was an update to existing product
+                                    console.log('Product updated with ID:', result.id);
+                                }
+                                
+                                // Set view mode after successful save (both for create and update)
+                                setViewMode(true);
+                                
+                                // Update URL if needed - this would typically be handled by the parent component
+                                // through the onSubmit callback
+                            }
                             
                             // Call onSubmit callback if provided
                             if (onSubmit && result) {
@@ -412,7 +665,9 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                     }}
                 >
                     {methods.formState.isSubmitting ? t('products.form.saving', 'Saving...') : t('products.form.save', 'Save Product')}
-                </Button>
+                        </Button>
+                    )
+                )}
             </Box>
 
             {/* Main Content Grid (70/30 split) */}
@@ -444,17 +699,17 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             >
                                                 <FormControlLabel
                                                     value={ProductType.REGULAR}
-                                                    control={<Radio size="small"/>} 
+                                                    control={<Radio size="small" disabled={viewMode}/>} 
                                                     label={<Typography variant="body2">{t('products.types.regular', 'Simple')}</Typography>} 
                                                 />
                                                 <FormControlLabel
                                                     value={ProductType.PARENT}
-                                                    control={<Radio size="small"/>}
+                                                    control={<Radio size="small" disabled={viewMode}/>}
                                                     label={<Typography variant="body2">{t('products.types.parent', 'Variable')}</Typography>}
                                                 />
                                                 <FormControlLabel
                                                     value={ProductType.KIT}
-                                                    control={<Radio size="small"/>}
+                                                    control={<Radio size="small" disabled={viewMode}/>}
                                                     label={<Typography variant="body2">{t('products.types.kit', 'Kit')}</Typography>}
                                                 />
                                             </RadioGroup>
@@ -479,6 +734,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             size="small" 
                                             error={!!methods.formState.errors.name}
                                             helperText={methods.formState.errors.name?.message}
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -498,6 +754,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             size="small"
                                             error={!!methods.formState.errors.slug}
                                             helperText={methods.formState.errors.slug?.message || t('products.helpers.slug', 'Unique URL identifier (auto-generated suggested)')}
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -513,6 +770,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                     required={true}
                                     error={!!methods.formState.errors.division_id}
                                     helperText={methods.formState.errors.division_id?.message}
+                                    disabled={viewMode}
                                 />
                             </Grid>
 
@@ -530,6 +788,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                         methods.setValue('subcategory', 0); 
                                         setSelectedCategory(newValue); 
                                     }}
+                                    disabled={viewMode}
                                 />
                             </Grid>
 
@@ -542,7 +801,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                     apiEndpoint={entityEndpoints.subcategories}
                                     error={!!methods.formState.errors.subcategory}
                                     helperText={methods.formState.errors.subcategory?.message}
-                                    disabled={!selectedCategory}
+                                    disabled={!selectedCategory || viewMode}
                                     dependsOn={{
                                         field: 'id',
                                         param: 'category'
@@ -560,7 +819,8 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                     apiEndpoint={entityEndpoints.unitOfMeasures}
                                     required={true}
                                     error={!!methods.formState.errors.uom_id}
-                                    helperText={methods.formState.errors.uom_id?.message}
+                                    helperText={methods.formState.errors.uom_id?.message}    
+                                    disabled={viewMode}
                                 />
                             </Grid>
 
@@ -578,7 +838,8 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             fullWidth
                                             multiline
                                             rows={4}
-                                            size="small" 
+                                            size="small"
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -598,6 +859,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             multiline
                                             rows={2}
                                             size="small"
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -625,7 +887,9 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                 helperText={methods.formState.errors.currency_code?.message}
                                 valueField="code" 
                                 getOptionLabel={(option: any) => `${option.code} - ${option.name}`}
+                                disabled={viewMode}
                             />
+
                         </Grid>
 
                         {/* === Display Price === */}
@@ -651,6 +915,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             const value = e.target.value;
                                             field.onChange(value === '' ? null : Number(value));
                                         }}
+                                        disabled={viewMode}
                                     />
                                 )}
                             />
@@ -666,6 +931,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                 filterParams={{ is_active: true }}
                                 error={!!methods.formState.errors.default_tax_rate_profile}
                                 helperText={methods.formState.errors.default_tax_rate_profile?.message || t('products.helpers.taxProfile', 'Optional. Overrides category/global defaults.')}
+                                disabled={viewMode}
                             />
                         </Grid>
 
@@ -691,6 +957,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                              const value = e.target.value;
                                              field.onChange(value === '' ? null : Number(value));
                                          }}
+                                         disabled={viewMode}
                                      />
                                  )}
                              />
@@ -711,6 +978,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             />
                                         }
                                         label={t('productIsTaxExempt')}
+                                        disabled={viewMode}
                                     />
                                 )}
                             />
@@ -740,6 +1008,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                          error={!!methods.formState.errors.sku}
                                          helperText={methods.formState.errors.sku?.message || t('products.helpers.sku', 'Unique per tenant. May be auto-generated.')} 
                                          value={field.value ?? ''}
+                                         disabled={viewMode}
                                      />
                                  )}
                              />
@@ -781,6 +1050,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                                     size="small"
                                                 />
                                             }
+                                            disabled={viewMode}
                                             label={t('productTrackInventory')}
                                         />
                                     )}
@@ -803,6 +1073,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                                  disabled={!isInventoryTrackingEnabled} 
                                              />
                                          }
+                                         disabled={viewMode}
                                          label={t('productIsSerialized')}
                                          title={t('products.helpers.isSerialized', 'Check if individual units require unique serial number tracking.')} 
                                      />
@@ -825,6 +1096,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                                  disabled={!isInventoryTrackingEnabled} 
                                              />
                                          }
+                                         disabled={viewMode}
                                          label={t('productIsLotted')}
                                          title={t('products.helpers.isLotted', 'Check if product is tracked in batches/lots.')} 
                                      />
@@ -849,6 +1121,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                                 />
                                             }
                                             label={t('productAllowBackorders')}
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -920,6 +1193,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             fullWidth
                                             size="small"
                                             helperText={t('productMetaTitleHelper')}
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -937,6 +1211,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             rows={2}
                                             size="small"
                                             helperText={t('productMetaDescriptionHelper')}
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -949,8 +1224,9 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                     render={({ field, fieldState: { error } }) => renderTagInput({
                                         field,
                                         label: t('products.form.fields.tags.label', 'Tags'),
-                                        helperText: error?.message || t('products.form.fields.tags.helper', 'Enter tags separated by commas')
+                                        helperText: error?.message || t('products.form.fields.tags.helper', 'Enter tags separated by commas'),
                                     })}
+                                    disabled={viewMode}
                                 />
                             </Grid>
                         </Grid>
@@ -996,6 +1272,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                                     size="small"
                                                     error={!!methods.formState.errors.faqs?.[index]?.question}
                                                     helperText={methods.formState.errors.faqs?.[index]?.question?.message}
+                                                    disabled={viewMode}
                                                 />
                                             )}
                                         />
@@ -1014,6 +1291,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                                     rows={3}
                                                     error={!!methods.formState.errors.faqs?.[index]?.answer}
                                                     helperText={methods.formState.errors.faqs?.[index]?.answer?.message}
+                                                    disabled={viewMode}
                                                 />
                                             )}
                                         />
@@ -1043,6 +1321,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                     required={true}
                                     error={!!methods.formState.errors.productstatus}
                                     helperText={methods.formState.errors.productstatus?.message}
+                                    disabled={viewMode}
                                 />
                             </Grid>
 
@@ -1062,7 +1341,8 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             }
                                             label={t('productIsActive')}
                                             labelPlacement="start" 
-                                            sx={{ justifyContent: 'space-between', ml: 0, width: '100%' }} 
+                                            sx={{ justifyContent: 'space-between', ml: 0, width: '100%' }}
+                                            disabled={viewMode} 
                                         />
                                     )}
                                 />
@@ -1094,6 +1374,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             label={t('productPreOrderEnabled')}
                                             sx={{ justifyContent: 'space-between', ml: 0, width: '100%' }}
                                             labelPlacement="start"
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -1110,7 +1391,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             size="small"
                                             InputLabelProps={{ shrink: true }}
                                             fullWidth
-                                            disabled={!preOrderAvailable}
+                                            disabled={!preOrderAvailable || viewMode}
                                             sx={{ mt: 1, transition: 'opacity 0.3s ease-in-out', opacity: preOrderAvailable ? 1 : 0.5 }}
                                             value={field.value || ''}
                                         />
@@ -1133,6 +1414,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             label={t('productAllowReviews')}
                                             sx={{ justifyContent: 'space-between', ml: 0, width: '100%' }}
                                             labelPlacement="start"
+                                            disabled={viewMode}
                                         />
                                     )}
                                 />
@@ -1174,8 +1456,9 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                     render={({ field, fieldState: { error } }) => renderTagInput({
                                         field,
                                         label: t('products.form.fields.tags.label', 'Tags'),
-                                        helperText: error?.message || t('products.form.fields.tags.helper', 'Enter tags separated by commas')
+                                        helperText: error?.message || t('products.form.fields.tags.helper', 'Enter tags separated by commas'),
                                     })}
+                                    disabled={viewMode}
                                 />
                             </Grid>
                              {/* Category, Subcategory, UOM Removed - Moved to General */}

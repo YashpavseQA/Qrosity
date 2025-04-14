@@ -181,9 +181,9 @@ class ProductSerializer(serializers.ModelSerializer):
     JSON for the Product model, supporting all CRUD operations including related
     images and attribute values.
     """
-    # Read-only fields
-    client_id = serializers.IntegerField()
-    company_id = serializers.IntegerField()
+    # Tenant fields with defaults
+    client_id = serializers.IntegerField(default=1)
+    company_id = serializers.IntegerField(default=1)
     slug = serializers.SlugField(required=False)
     
     
@@ -653,8 +653,13 @@ class ProductSerializer(serializers.ModelSerializer):
             variant_defining_attributes_data = validated_data.pop('variant_defining_attributes', None)
             attribute_values_input = validated_data.pop('attribute_values_input', [])
             
-            # Get tenant from context
-            tenant = self.context['request'].tenant
+            # Get tenant from context or use default client_id
+            try:
+                tenant = self.context['request'].tenant
+            except (KeyError, AttributeError):
+                # If tenant is not available in request, use client_id from instance
+                logger.info("No tenant found in request, using client_id from instance")
+                tenant = instance.client_id
             
             # Handle publication status
             publication_status = validated_data.pop('publication_status', 'DRAFT')
@@ -681,11 +686,17 @@ class ProductSerializer(serializers.ModelSerializer):
             if temp_images:
                 try:
                     logger.info(f"Linking {len(temp_images)} temporary images")
+                    # Handle different tenant types (object or ID)
+                    tenant_param = tenant
+                    if isinstance(tenant, int):
+                        # If tenant is just an ID (client_id), pass it directly
+                        logger.info(f"Using client_id {tenant} as tenant parameter")
+                        
                     link_temporary_images(
                         owner_instance=product,
                         owner_type='product',
                         temp_image_data=temp_images,
-                        tenant=tenant
+                        tenant=tenant_param
                     )
                 except Exception as e:
                     logger.error(f"Error linking temporary images: {str(e)}")
@@ -697,11 +708,22 @@ class ProductSerializer(serializers.ModelSerializer):
                 for attr_value in attribute_values_input:
                     try:
                         attribute_id = attr_value.get('attribute')
-                        attribute = Attribute.objects.get(
-                            id=attribute_id,
-                            tenant=tenant,
-                            attribute_groups__in=attribute_groups_data if attribute_groups_data else []
-                        )
+                        # Handle different tenant types (object or client_id)
+                        if isinstance(tenant, int):
+                            # If tenant is just an ID (client_id), use client_id filter
+                            logger.info(f"Using client_id {tenant} for attribute lookup")
+                            attribute = Attribute.objects.get(
+                                id=attribute_id,
+                                tenant__client_id=tenant,  # Use client_id to filter tenant
+                                attribute_groups__in=attribute_groups_data if attribute_groups_data else []
+                            )
+                        else:
+                            # Normal case with tenant object
+                            attribute = Attribute.objects.get(
+                                id=attribute_id,
+                                tenant=tenant,
+                                attribute_groups__in=attribute_groups_data if attribute_groups_data else []
+                            )
                         
                         # Create attribute value based on type
                         if attribute.data_type in ['SELECT', 'MULTI_SELECT']:
@@ -764,8 +786,13 @@ class ProductSerializer(serializers.ModelSerializer):
             variant_defining_attributes_data = validated_data.pop('variant_defining_attributes', None)
             attribute_values_input = validated_data.pop('attribute_values_input', None)
             
-            # Get tenant from context
-            tenant = self.context['request'].tenant
+            # Get tenant from context or use default client_id
+            try:
+                tenant = self.context['request'].tenant
+            except (KeyError, AttributeError):
+                # If tenant is not available in request, use client_id from instance
+                logger.info("No tenant found in request, using client_id from instance")
+                tenant = instance.client_id
             
             # Update the product instance
             logger.info(f"Updating product {instance.id} with data: {validated_data}")
@@ -784,11 +811,17 @@ class ProductSerializer(serializers.ModelSerializer):
             if temp_images is not None:
                 try:
                     logger.info(f"Linking {len(temp_images)} temporary images")
+                    # Handle different tenant types (object or ID)
+                    tenant_param = tenant
+                    if isinstance(tenant, int):
+                        # If tenant is just an ID (client_id), pass it directly
+                        logger.info(f"Using client_id {tenant} as tenant parameter")
+                        
                     link_temporary_images(
                         owner_instance=product,
                         owner_type='product',
                         temp_image_data=temp_images,
-                        tenant=tenant
+                        tenant=tenant_param
                     )
                 except Exception as e:
                     logger.error(f"Error linking temporary images: {str(e)}")
@@ -799,17 +832,35 @@ class ProductSerializer(serializers.ModelSerializer):
                 logger.info(f"Processing {len(attribute_values_input)} attribute values")
                 
                 # Clear existing values if we're updating
-                ProductAttributeValue.objects.filter(product=product).delete()
-                ProductAttributeMultiValue.objects.filter(product=product).delete()
+                # First get all ProductAttributeValue objects for this product
+                product_attr_values = ProductAttributeValue.objects.filter(product=product)
+                
+                # Delete any ProductAttributeMultiValue objects related to these ProductAttributeValue objects
+                if product_attr_values.exists():
+                    ProductAttributeMultiValue.objects.filter(product_attribute_value__in=product_attr_values).delete()
+                
+                # Then delete the ProductAttributeValue objects themselves
+                product_attr_values.delete()
                 
                 for attr_value in attribute_values_input:
                     try:
                         attribute_id = attr_value.get('attribute')
-                        attribute = Attribute.objects.get(
-                            id=attribute_id,
-                            tenant=tenant,
-                            attribute_groups__in=attribute_groups_data if attribute_groups_data else []
-                        )
+                        # Handle different tenant types (object or client_id)
+                        if isinstance(tenant, int):
+                            # If tenant is just an ID (client_id), use client_id filter
+                            logger.info(f"Using client_id {tenant} for attribute lookup")
+                            attribute = Attribute.objects.get(
+                                id=attribute_id,
+                                tenant__client_id=tenant,  # Use client_id to filter tenant
+                                attribute_groups__in=attribute_groups_data if attribute_groups_data else []
+                            )
+                        else:
+                            # Normal case with tenant object
+                            attribute = Attribute.objects.get(
+                                id=attribute_id,
+                                tenant=tenant,
+                                attribute_groups__in=attribute_groups_data if attribute_groups_data else []
+                            )
                         
                         # Create attribute value based on type
                         if attribute.data_type in ['SELECT', 'MULTI_SELECT']:
