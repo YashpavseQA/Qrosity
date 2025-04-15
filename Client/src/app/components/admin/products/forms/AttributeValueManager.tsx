@@ -1,6 +1,6 @@
 // src/components/AttributeValueManager/AttributeValueManager.tsx
 
-import React, { FC, useEffect, useState, useMemo } from 'react';
+import React, { FC, useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Box, Typography, Autocomplete, TextField, Alert, CircularProgress, Stack, Divider, Paper, Grid, IconButton, Checkbox, FormControl,
   FormHelperText, MenuItem, Select, Chip, Tooltip, AutocompleteChangeReason,
@@ -111,31 +111,46 @@ interface ProductFormData {
 // Type for the form context
 type FormContextType = any; // Using any to avoid TypeScript errors
 
+// Define the structure of attribute values from the API
+interface AttributeValue {
+  id?: number;
+  attribute: number;
+  value?: any;
+  value_text?: string;
+  value_number?: number;
+  value_boolean?: boolean;
+  value_date?: string;
+  value_option?: number;
+  use_variant?: boolean;
+}
+
 // --- Component Props Interface ---
 interface AttributeValueManagerProps {
   control: Control<any>; // Using any type to avoid TypeScript errors
   setValue: UseFormSetValue<any>; // Using any type to avoid TypeScript errors
   onDeleteAttribute?: (attributeId: number) => void; // Callback to handle deletion in parent/form state
   watch?: any; // Function to watch form values, used to check product type
-  defaultValues?: any[]; // Default values for attributes
+  defaultValues?: AttributeValue[]; // Default values for attributes with proper typing
   onVariantToggle?: (attribute: Attribute, isSelected: boolean) => void; // Callback when variant checkbox is toggled
   isVariableProduct?: boolean; // Flag to indicate if this is a variable product
   selectedGroupIds?: number[]; // IDs of selected attribute groups
   variantDefiningAttributeIds?: number[]; // IDs of attributes used for variants
   onValuesChange?: (values: any) => void; // Callback when attribute values change
+  viewMode?: boolean; // Flag to indicate if the component is in view-only mode
 }
 
 // --- Helper Component: AttributeRow ---
 interface AttributeRowProps {
     attribute: Attribute;
     control: Control<any>; // Using any type to avoid TypeScript errors
+    viewMode?: boolean; // Flag to indicate if the component is in view-only mode
     onRemoveAttribute: (attributeId: number) => void;
     onVariantToggle?: (attribute: Attribute, isSelected: boolean) => void;
     isVariableProduct?: boolean; // Flag to indicate if product type is Variable
     isDisabled?: boolean; // Flag to indicate if attribute is disabled
 }
 
-const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttribute, onVariantToggle, isVariableProduct = false, isDisabled = false }) => {
+const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttribute, onVariantToggle, isVariableProduct = false, isDisabled = false, viewMode = false }) => {
     // Access the context
     const { handleVariantAttributeToggle } = useAttributeValue();
     const { t } = useTranslation();
@@ -329,6 +344,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                             {...commonInputProps}
                             {...field}
                             helperText={valueError?.message}
+                            disabled={viewMode}
                         />
                     )}
                 />;
@@ -506,6 +522,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                                         methods.trigger(fieldNameValue);
                                     }
                                 }}
+                                disabled={viewMode}
                                 onKeyDown={(e) => {
                                     // For arrow keys and Enter, validate immediately
                                     if (['ArrowUp', 'ArrowDown', 'Enter'].includes(e.key) && 
@@ -578,7 +595,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                                 error={!!valueError}
                                 fullWidth
                                 size="small"
-                                disabled={isVariantAttribute || isDisabled}
+                                disabled={isVariantAttribute || isDisabled || viewMode}
                             >
                                 <RadioGroup
                                     row
@@ -640,6 +657,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                                             inputRef: ref
                                         }
                                     }}
+                                    disabled={viewMode}
                                 />
                             );
                         }}
@@ -680,7 +698,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                                     isOptionEqualToValue={(option, value) =>
                                         option.id === value
                                     }
-                                    disabled={isVariantAttribute || isDisabled}
+                                    disabled={isVariantAttribute || isDisabled || viewMode}
                                     renderInput={(params) => (
                                         <TextField
                                             {...params}
@@ -688,7 +706,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                                             error={!!valueError}
                                             helperText={valueError?.message}
                                             size='small'
-                                            disabled={isVariantAttribute || isDisabled}
+                                            disabled={isVariantAttribute || isDisabled || viewMode}
                                         />
                                     )}
                                 />
@@ -736,7 +754,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                                     isOptionEqualToValue={(option, value) =>
                                         option.id === value
                                     }
-                                    disabled={isVariantAttribute || isDisabled}
+                                    disabled={isVariantAttribute || isDisabled || viewMode}
                                     renderInput={(params) => (
                                         <TextField
                                             {...params}
@@ -744,7 +762,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                                             error={!!valueError}
                                             helperText={valueError?.message}
                                             size='small'
-                                            disabled={isVariantAttribute || isDisabled}
+                                            disabled={isVariantAttribute || isDisabled || viewMode}
                                         />
                                     )}
                                     renderTags={(tagValue, getTagProps) =>
@@ -889,7 +907,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
                                     onBlur={variantField.onBlur} 
                                     name={variantField.name} 
                                     ref={variantField.ref} 
-                                    disabled={!attribute.use_for_variants} 
+                                    disabled={!attribute.use_for_variants || viewMode} 
                                     size="medium" 
                                     inputProps={{ 'aria-label': t('attributes.useForVariantLabel', 'Use for Variant') }} 
                                 />
@@ -907,7 +925,7 @@ const AttributeRow: FC<AttributeRowProps> = ({ attribute, control, onRemoveAttri
 };
 
 // --- Main Component Implementation ---
-const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setValue, onDeleteAttribute, watch, selectedGroupIds = [], variantDefiningAttributeIds = [], onValuesChange }): React.ReactElement => {
+const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setValue, onDeleteAttribute, watch, selectedGroupIds = [], variantDefiningAttributeIds = [], onValuesChange, viewMode = false, defaultValues = [] }): React.ReactElement => {
   const { t } = useTranslation();
   const { handleVariantAttributeToggle: contextHandleVariantAttributeToggle } = useAttributeValue();
   const [selectedGroups, setSelectedGroups] = useState<AttributeGroup[]>([]);
@@ -937,9 +955,18 @@ const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setVal
 
   // Data Fetching - Use selectedGroupIds for filtering when available
   const { data: groupsData, isLoading: groupsLoading, error: groupsError } = useFetchAttributeGroups({ is_active: true });
-  const { data: attributesData, isLoading: attributesLoading, error: attributesError } = useFetchAttributes(
-    selectedGroupIds && selectedGroupIds.length > 0 ? { group: selectedGroupIds } : {}
-  );
+  
+  // Fetch attributes for all selected groups
+  // We use an empty filter to get all attributes, then filter them client-side
+  // This ensures we get all attributes even if they belong to multiple groups
+  const { data: attributesData, isLoading: attributesLoading, error: attributesError } = useFetchAttributes({});
+  
+  // Log selected group IDs for debugging
+  useEffect(() => {
+    if (selectedGroupIds && selectedGroupIds.length > 0) {
+      console.log('Selected group IDs:', selectedGroupIds);
+    }
+  }, [selectedGroupIds]);
   
   // Extract the results array from the paginated response
   const groupsArray = groupsData?.results || [];
@@ -994,6 +1021,101 @@ const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setVal
     }
   }, [attributesData]);
   
+  // Effect to process defaultValues and set form values for attributes
+  useEffect(() => {
+    if (defaultValues && defaultValues.length > 0) {
+      console.log('Processing default attribute values:', defaultValues);
+      
+      // If we don't have attributes loaded yet, try to get them from attributesData
+      const attributesToUse = allGroupAttributes.length > 0 
+        ? allGroupAttributes 
+        : (attributesData?.results || []);
+      
+      if (attributesToUse.length === 0) {
+        console.warn('No attributes available to process defaultValues');
+        return; // Wait until attributes are available
+      }
+      
+      console.log('Using attributes:', attributesToUse.map(a => ({ id: a.id, name: a.name })));
+      
+      // Process each attribute value from the API response
+      defaultValues.forEach(attrValue => {
+        console.log('Processing attribute value:', attrValue);
+        
+        // Find the corresponding attribute in attributesToUse
+        const attribute = attributesToUse.find(attr => attr.id === attrValue.attribute);
+        
+        if (attribute) {
+          console.log('Found matching attribute:', { id: attribute.id, name: attribute.name, dataType: attribute.data_type });
+          
+          // Set the attribute value in the form
+          const fieldNameValue = `attributes.${attribute.id}.value`;
+          const fieldNameVariant = `attributes.${attribute.id}.use_variant`;
+          
+          // Set the value based on the attribute type
+          let valueToSet;
+          
+          switch (attribute.data_type) {
+            case 'TEXT':
+              valueToSet = attrValue.value_text !== undefined ? attrValue.value_text : attrValue.value;
+              console.log(`Setting TEXT value for ${attribute.name}:`, valueToSet);
+              setValue(fieldNameValue, valueToSet);
+              break;
+            case 'NUMBER':
+              valueToSet = attrValue.value_number !== undefined ? attrValue.value_number : attrValue.value;
+              console.log(`Setting NUMBER value for ${attribute.name}:`, valueToSet);
+              setValue(fieldNameValue, valueToSet);
+              break;
+            case 'BOOLEAN':
+              valueToSet = attrValue.value_boolean !== undefined ? attrValue.value_boolean : attrValue.value;
+              console.log(`Setting BOOLEAN value for ${attribute.name}:`, valueToSet);
+              setValue(fieldNameValue, valueToSet);
+              break;
+            case 'DATE':
+              valueToSet = attrValue.value_date !== undefined ? attrValue.value_date : attrValue.value;
+              console.log(`Setting DATE value for ${attribute.name}:`, valueToSet);
+              setValue(fieldNameValue, valueToSet);
+              break;
+            case 'SELECT':
+              // For SELECT, we need to set the option ID
+              valueToSet = attrValue.value_option !== undefined 
+                ? attrValue.value_option 
+                : (attrValue.value && typeof attrValue.value === 'object' && 'id' in attrValue.value 
+                  ? attrValue.value.id 
+                  : attrValue.value);
+              console.log(`Setting SELECT value for ${attribute.name}:`, valueToSet);
+              setValue(fieldNameValue, valueToSet);
+              break;
+            case 'MULTI_SELECT':
+              // For MULTI_SELECT, we need to set an array of option IDs
+              if (Array.isArray(attrValue.value)) {
+                valueToSet = attrValue.value.map((v: any) => typeof v === 'object' && v !== null ? v.id : v);
+              } else if (attrValue.value !== null && attrValue.value !== undefined) {
+                valueToSet = [attrValue.value];
+              } else {
+                valueToSet = [];
+              }
+              console.log(`Setting MULTI_SELECT value for ${attribute.name}:`, valueToSet);
+              setValue(fieldNameValue, valueToSet);
+              break;
+            default:
+              valueToSet = attrValue.value;
+              console.log(`Setting default value for ${attribute.name}:`, valueToSet);
+              setValue(fieldNameValue, valueToSet);
+          }
+          
+          // Set the variant flag if this attribute is used for variants
+          if (variantDefiningAttributeIds.includes(attribute.id)) {
+            console.log(`Setting use_variant=true for ${attribute.name}`);
+            setValue(fieldNameVariant, true);
+          }
+        } else {
+          console.warn(`Could not find attribute with ID ${attrValue.attribute} in loaded attributes`);
+        }
+      });
+    }
+  }, [defaultValues, allGroupAttributes, attributesData, setValue, variantDefiningAttributeIds]);
+  
   // Effect to reset allGroupAttributes when all groups are removed
   useEffect(() => {
     if (selectedGroupIds.length === 0) {
@@ -1004,10 +1126,13 @@ const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setVal
   // Filtering Logic (Shows attributes from all selected groups, including variant-defining ones but marked for disabled state)
   const filteredAttributes = useMemo(() => {
     // If no attributes or no groups selected, return empty array
-    if (allGroupAttributes.length === 0 || selectedGroupIds.length === 0) return [];
+    if (attributesData?.results?.length === 0 || selectedGroupIds.length === 0) return [];
+    
+    // Get all attributes from the API response
+    const allAttributes = attributesData?.results || [];
     
     // Filter attributes based on selected groups and excluded attributes
-    return allGroupAttributes
+    return allAttributes
       .filter(attribute => {
         // Check if attribute is active
         if (attribute.is_active !== true) return false;
@@ -1019,6 +1144,8 @@ const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setVal
         const attrGroups = Array.isArray(attribute.groups) ? attribute.groups : [];
         
         // Handle both cases: groups as number[] or as AttributeGroup[]
+        if (attrGroups.length === 0) return false;
+        
         if (typeof attrGroups[0] === 'number') {
           return selectedGroupIds.some(groupId => (attrGroups as number[]).includes(groupId));
         } else if (typeof attrGroups[0] === 'object') {
@@ -1034,7 +1161,7 @@ const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setVal
         // Mark as disabled if it's a variant-defining attribute
         isDisabled: variantDefiningAttributeIds?.includes(attribute.id) || false
       }));
-  }, [allGroupAttributes, selectedGroupIds, excludedAttributeIds, variantDefiningAttributeIds]);
+  }, [attributesData, selectedGroupIds, excludedAttributeIds, variantDefiningAttributeIds]);
   
   // Handler to remove an attribute from the filtered list
   const handleRemoveAttribute = (attributeId: number) => {
@@ -1048,6 +1175,37 @@ const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setVal
     setSelectedVariantAttributes(prev => prev.filter(attr => attr.id !== attributeId));
   };
   
+  // Manual function to get current attribute values - only called when needed
+  const getAttributeValues = () => {
+    if (!filteredAttributes.length || !watch) return [];
+    
+    // Filter attributes with values and map to API format
+    return filteredAttributes
+      .filter(attr => {
+        const value = watch(`attributes.${attr.id}.value`);
+        return value !== undefined && value !== null && value !== '';
+      })
+      .map(attr => {
+        // Create the base attribute value object with only the required fields
+        // The backend expects a simple structure with just attribute ID and value
+        return {
+          attribute: attr.id,
+          value: watch(`attributes.${attr.id}.value`)
+        };
+      });
+  };
+  
+  // Update parent component with current values - called from attribute row components
+  const updateParentValues = useCallback(() => {
+    if (!viewMode && onValuesChange) {
+      const values = getAttributeValues();
+      if (values.length > 0) {
+        onValuesChange(values);
+      }
+    }
+  }, [filteredAttributes, onValuesChange, viewMode, watch]);
+  
+
   // Handler for when an attribute is selected/deselected for variants
   const handleVariantAttributeToggle = (attribute: Attribute, isSelected: boolean) => {
     if (isSelected) {
@@ -1128,6 +1286,7 @@ const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setVal
                      noOptionsText={t('attributes.noActiveGroups')}
                      isOptionEqualToValue={(option, value) => option?.id === value?.id}
                      sx={{ mb: 2 }}
+                     disabled={viewMode}
                  />
                  <Divider sx={{ mb: 2 }} />
 
@@ -1166,15 +1325,16 @@ const AttributeValueManager: FC<AttributeValueManagerProps> = ({ control, setVal
                     <Stack spacing={0}> {/* Use Stack for the list of rows */}
                      {filteredAttributes.length > 0 ? (
                          filteredAttributes.map((attribute) => (
-                             <AttributeRow
-                                key={attribute.id}
-                                attribute={attribute}
-                                control={control}
-                                onRemoveAttribute={handleRemoveAttribute}
-                                onVariantToggle={handleVariantAttributeToggle}
-                                isVariableProduct={isVariableProduct}
-                                isDisabled={attribute.isDisabled}
-                             />
+                              <AttributeRow
+                                 key={attribute.id}
+                                 attribute={attribute}
+                                 control={control}
+                                 onRemoveAttribute={handleRemoveAttribute}
+                                 onVariantToggle={handleVariantAttributeToggle}
+                                 isVariableProduct={isVariableProduct}
+                                 isDisabled={attribute.isDisabled}
+                                 viewMode={viewMode}
+                              />
                          ))
                      ) : (
                         // Show message only if groups are selected but no matching attributes found

@@ -744,15 +744,17 @@ class ProductSerializer(serializers.ModelSerializer):
                             logger.info(f"Using client_id {tenant} for attribute lookup")
                             attribute = Attribute.objects.get(
                                 id=attribute_id,
-                                tenant__client_id=tenant,  # Use client_id to filter tenant
-                                attribute_groups__in=attribute_groups_data if attribute_groups_data else []
+                                client_id=tenant,  # Use client_id directly, not tenant__client_id
+                                groups__in=attribute_groups_data if attribute_groups_data else []  # Fixed field name from attribute_groups to groups
                             )
                         else:
-                            # Normal case with tenant object
+                            # Normal case with tenant object - but we need to use client_id
+                            # Extract client_id from tenant object if it's not already a client_id
+                            client_id_value = tenant if isinstance(tenant, int) else getattr(tenant, 'client_id', 1)
                             attribute = Attribute.objects.get(
                                 id=attribute_id,
-                                tenant=tenant,
-                                attribute_groups__in=attribute_groups_data if attribute_groups_data else []
+                                client_id=client_id_value,  # Always use client_id field
+                                groups__in=attribute_groups_data if attribute_groups_data else []  # Fixed field name from attribute_groups to groups
                             )
                         
                         # Create attribute value based on type
@@ -771,21 +773,32 @@ class ProductSerializer(serializers.ModelSerializer):
                                 ProductAttributeValue.objects.create(
                                     product=product,
                                     attribute=attribute,
-                                    option=options.first() if options else None
+                                    value_option=options.first() if options else None
                                 )
                             else:  # MULTI_SELECT
                                 for option in options:
                                     ProductAttributeMultiValue.objects.create(
                                         product=product,
                                         attribute=attribute,
-                                        option=option
+                                        value_option=option
                                     )
                         else:
                             # Handle other types (TEXT, NUMBER, BOOLEAN, DATE)
+                            # We need to use type-specific fields, not a generic 'value' field
+                            value_data = {}
+                            if attribute.data_type == 'TEXT':
+                                value_data['value_text'] = attr_value.get('value')
+                            elif attribute.data_type == 'NUMBER':
+                                value_data['value_number'] = attr_value.get('value')
+                            elif attribute.data_type == 'BOOLEAN':
+                                value_data['value_boolean'] = attr_value.get('value')
+                            elif attribute.data_type == 'DATE':
+                                value_data['value_date'] = attr_value.get('value')
+                                
                             ProductAttributeValue.objects.create(
                                 product=product,
                                 attribute=attribute,
-                                value=attr_value.get('value')
+                                **value_data  # Use the type-specific field
                             )
                     except Attribute.DoesNotExist:
                         logger.error(f"Attribute {attribute_id} not found")
@@ -881,15 +894,17 @@ class ProductSerializer(serializers.ModelSerializer):
                             logger.info(f"Using client_id {tenant} for attribute lookup")
                             attribute = Attribute.objects.get(
                                 id=attribute_id,
-                                tenant__client_id=tenant,  # Use client_id to filter tenant
-                                attribute_groups__in=attribute_groups_data if attribute_groups_data else []
+                                client_id=tenant,  # Use client_id directly, not tenant__client_id
+                                groups__in=attribute_groups_data if attribute_groups_data else []  # Fixed field name from attribute_groups to groups
                             )
                         else:
-                            # Normal case with tenant object
+                            # Normal case with tenant object - but we need to use client_id
+                            # Extract client_id from tenant object if it's not already a client_id
+                            client_id_value = tenant if isinstance(tenant, int) else getattr(tenant, 'client_id', 1)
                             attribute = Attribute.objects.get(
                                 id=attribute_id,
-                                tenant=tenant,
-                                attribute_groups__in=attribute_groups_data if attribute_groups_data else []
+                                client_id=client_id_value,  # Always use client_id field
+                                groups__in=attribute_groups_data if attribute_groups_data else []  # Fixed field name from attribute_groups to groups
                             )
                         
                         # Create attribute value based on type
@@ -908,21 +923,32 @@ class ProductSerializer(serializers.ModelSerializer):
                                 ProductAttributeValue.objects.create(
                                     product=product,
                                     attribute=attribute,
-                                    option=options.first() if options else None
+                                    value_option=options.first() if options else None
                                 )
                             else:  # MULTI_SELECT
                                 for option in options:
                                     ProductAttributeMultiValue.objects.create(
                                         product=product,
                                         attribute=attribute,
-                                        option=option
+                                        value_option=option
                                     )
                         else:
                             # Handle other types (TEXT, NUMBER, BOOLEAN, DATE)
+                            # We need to use type-specific fields, not a generic 'value' field
+                            value_data = {}
+                            if attribute.data_type == 'TEXT':
+                                value_data['value_text'] = attr_value.get('value')
+                            elif attribute.data_type == 'NUMBER':
+                                value_data['value_number'] = attr_value.get('value')
+                            elif attribute.data_type == 'BOOLEAN':
+                                value_data['value_boolean'] = attr_value.get('value')
+                            elif attribute.data_type == 'DATE':
+                                value_data['value_date'] = attr_value.get('value')
+                                
                             ProductAttributeValue.objects.create(
                                 product=product,
                                 attribute=attribute,
-                                value=attr_value.get('value')
+                                **value_data  # Use the type-specific field
                             )
                     except Attribute.DoesNotExist:
                         logger.error(f"Attribute {attribute_id} not found")

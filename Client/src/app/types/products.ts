@@ -35,6 +35,29 @@ export interface ProductAttributeValue {
 }
 
 /**
+ * Interface for attribute values from the API response
+ */
+export interface ApiAttributeValue {
+  id?: number;
+  client_id?: number;
+  company_id?: number;
+  product?: number;
+  attribute: number | { id: number; name: string; code: string; data_type: string };
+  attribute_name?: string;
+  attribute_code?: string;
+  attribute_type?: string;
+  value: any;
+  value_text?: string | null;
+  value_number?: number | null;
+  value_boolean?: boolean | null;
+  value_date?: string | null;
+  value_option?: number | null;
+  use_variant?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
  * Interface for attribute values in the API payload format
  * This matches the Django backend's expected structure
  */

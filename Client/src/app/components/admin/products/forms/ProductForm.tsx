@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, FC } from 'react';
 import dynamic from 'next/dynamic';
 import {
     Box, Typography, Button, TextField, FormControlLabel, Checkbox,
@@ -100,6 +100,9 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
     // State to control view/edit mode
     const [viewMode, setViewMode] = useState<boolean>(initialViewMode || !!productId);
     
+    // Ref to track the last attribute values to prevent infinite loops
+    const lastAttributeValuesRef = useRef<string>('');
+
     // State to track the current product ID (from props or after creation)
     const [currentProductId, setCurrentProductId] = useState<string | undefined>(productId);
     
@@ -205,19 +208,57 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
         // Safely handle attribute values
         if (details.attribute_values) {
             details.attribute_values.forEach(av => {
-                if (av && av.attribute && av.attribute.id) {
-                    attributeValues[av.attribute.id.toString()] = {
-                        id: av.id || 0,
-                        attribute_id: av.attribute.id,
-                        attribute_name: av.attribute.name || '',
-                        attribute_code: av.attribute.code || '',
-                        attribute_type: av.attribute.data_type || '',
-                        value: av.value,
-                        use_variant: av.use_variant ?? false
+                // Use type assertion to handle the API response format
+                const apiValue = av as any;
+                
+                // Handle both formats: attribute as object or as number
+                const attributeId = typeof apiValue.attribute === 'object' ? apiValue.attribute.id : apiValue.attribute;
+                
+                if (attributeId) {
+                    // Determine the actual value based on attribute type
+                    let actualValue = apiValue.value;
+                    const attributeType = typeof apiValue.attribute === 'object' ? apiValue.attribute.data_type || '' : apiValue.attribute_type || '';
+                    
+                    // Use type-specific values if available
+                    if (attributeType === 'TEXT' && apiValue.value_text !== undefined && apiValue.value_text !== null) {
+                        actualValue = apiValue.value_text;
+                    } else if (attributeType === 'NUMBER' && apiValue.value_number !== undefined && apiValue.value_number !== null) {
+                        actualValue = apiValue.value_number;
+                    } else if (attributeType === 'BOOLEAN' && apiValue.value_boolean !== undefined && apiValue.value_boolean !== null) {
+                        actualValue = apiValue.value_boolean;
+                    } else if (attributeType === 'DATE' && apiValue.value_date !== undefined && apiValue.value_date !== null) {
+                        actualValue = apiValue.value_date;
+                    } else if ((attributeType === 'SELECT' || attributeType === 'MULTI_SELECT') && apiValue.value_option !== undefined && apiValue.value_option !== null) {
+                        actualValue = apiValue.value_option;
+                    } else if (actualValue && typeof actualValue === 'object' && 'id' in actualValue) {
+                        // Handle case where value is an object with an id (for SELECT types)
+                        actualValue = actualValue.id;
+                    }
+                    
+                    console.log(`Processing attribute ${attributeId} (${attributeType}): `, { 
+                        raw: apiValue.value, 
+                        text: apiValue.value_text, 
+                        number: apiValue.value_number, 
+                        boolean: apiValue.value_boolean, 
+                        date: apiValue.value_date, 
+                        option: apiValue.value_option,
+                        final: actualValue
+                    });
+                    
+                    attributeValues[attributeId.toString()] = {
+                        id: apiValue.id || 0,
+                        attribute_id: attributeId,
+                        attribute_name: typeof apiValue.attribute === 'object' ? apiValue.attribute.name || '' : apiValue.attribute_name || '',
+                        attribute_code: typeof apiValue.attribute === 'object' ? apiValue.attribute.code || '' : apiValue.attribute_code || '',
+                        attribute_type: attributeType,
+                        value: actualValue,
+                        use_variant: apiValue.use_variant ?? false
                     };
                 }
             });
         }
+        
+        console.log('Mapped attribute values:', attributeValues);
 
         return {
             // Basic product info
@@ -507,7 +548,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                     const formData = methods.getValues();
                                     console.log('Current form values for update:', formData);
                                     
-                                    // Process attribute values directly
+                                    // Process attribute values directly - ensure they match the backend's expected format
                                     const processedAttributeValues = Object.entries(formData.attributes || {})
                                         .filter(([attributeId, attr]) => {
                                             // Skip deleted attributes
@@ -528,10 +569,14 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                             
                                             return true;
                                         })
-                                        .map(([attributeId, attr]) => ({
-                                            attribute: Number(attributeId),
-                                            value: attr.value
-                                        }));
+                                        .map(([attributeId, attr]) => {
+                                            // Convert to simple format with just attribute ID and value
+                                            // This is what the backend expects in attribute_values_input
+                                            return {
+                                                attribute: Number(attributeId),
+                                                value: attr.value
+                                            };
+                                        });
                                     
                                     // Transfer parent_temp_images to temp_images if needed
                                     if (formData.parent_temp_images && formData.parent_temp_images.length > 0) {
@@ -541,11 +586,20 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                     // Create a clean payload without parent_temp_images and organizationTags
                                     const { parent_temp_images, organizationTags, ...cleanFormData } = formData;
                                     
+                                    // Create a clean payload that matches exactly what the backend expects
                                     const apiPayload = {
                                         ...cleanFormData,
-                                        attribute_values_input: processedAttributeValues,
-                                        variant_defining_attributes: formData.variant_defining_attributes || [],
-                                        attribute_groups: formData.attribute_groups || [],
+                                        // Use the processed attribute values from the form - ensure correct format
+                                        attribute_values_input: processedAttributeValues.map(av => ({
+                                            attribute: av.attribute, // Just the ID
+                                            value: av.value // Just the value
+                                        })),
+                                        // Only include IDs for variant defining attributes, not objects
+                                        variant_defining_attributes: (formData.variant_defining_attributes || [])
+                                            .map(id => typeof id === 'object' && id !== null && 'id' in id ? (id as any).id : id),
+                                        // Only include IDs for attribute groups, not objects
+                                        attribute_groups: (formData.attribute_groups || [])
+                                            .map(id => typeof id === 'object' && id !== null && 'id' in id ? (id as any).id : id),
                                         publication_status: PublicationStatus.ACTIVE
                                     };
                                     
@@ -1201,8 +1255,36 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                 methods.getValues('product_type') === ProductType.VARIANT || 
                                 methods.getValues('product_type') === ProductType.PARENT
                             }
-                            defaultValues={defaultValues?.attribute_values}
-                            onValuesChange={(vals) => methods.setValue('attribute_values_input', vals)}
+                            defaultValues={defaultValues?.attribute_values ? defaultValues.attribute_values.map((av: any) => ({
+                                attribute: typeof av.attribute === 'object' ? av.attribute.id : av.attribute,
+                                value: av.value,
+                                value_text: av.value_text,
+                                value_number: av.value_number,
+                                value_boolean: av.value_boolean,
+                                value_date: av.value_date,
+                                value_option: av.value_option,
+                                use_variant: av.use_variant
+                            })) : []}
+                            onValuesChange={(vals) => {
+                                // Prevent infinite loops by using a ref to track the last values
+                                const currentValsStr = JSON.stringify(vals);
+                                const lastValsStr = lastAttributeValuesRef.current;
+                                
+                                // Only update if values have actually changed
+                                if (vals && vals.length > 0 && currentValsStr !== lastValsStr) {
+                                    console.log('Setting attribute_values_input:', vals);
+                                    
+                                    // Update the ref with the new values
+                                    lastAttributeValuesRef.current = currentValsStr;
+                                    
+                                    // Use shouldDirty: false to prevent unnecessary form state changes
+                                    methods.setValue('attribute_values_input', vals, { 
+                                        shouldDirty: false,
+                                        shouldTouch: false
+                                    });
+                                }
+                            }}
+                            viewMode={viewMode}
                             onVariantToggle={(attribute, isSelected) => {
                                 // Update variant_defining_attributes when an attribute is toggled
                                 const currentVariantAttributes = methods.getValues('variant_defining_attributes') || [];
