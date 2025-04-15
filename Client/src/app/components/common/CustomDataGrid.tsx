@@ -45,6 +45,9 @@ interface CustomDataGridProps {
   hideToolbar?: boolean;
   viewMode?: 'list' | 'grid';
   density?: 'compact' | 'standard' | 'comfortable';
+  // Server-side pagination properties
+  rowCount?: number;
+  paginationMode?: 'server' | 'client';
 }
 
 const CustomDataGrid: React.FC<CustomDataGridProps> = ({
@@ -64,7 +67,10 @@ const CustomDataGrid: React.FC<CustomDataGridProps> = ({
   className,
   hideToolbar = false,
   viewMode = 'grid',
-  density: propDensity
+  density: propDensity,
+  // Server-side pagination properties
+  rowCount,
+  paginationMode = 'server'
 }) => {
   // Use state for density instead of calculating it during render
   const [density, setDensity] = useState(propDensity || (viewMode === 'list' ? 'compact' : 'standard'));
@@ -94,6 +100,9 @@ const CustomDataGrid: React.FC<CustomDataGridProps> = ({
       //   toolbar: hideToolbar ? undefined : CustomToolbar,
       // }}
       density={density}
+      // Server-side pagination properties
+      rowCount={rowCount}
+      paginationMode={paginationMode || 'server'}
       sx={{
         '& .MuiDataGrid-root': {
           border: 'none',

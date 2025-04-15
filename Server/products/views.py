@@ -154,10 +154,22 @@ class ProductViewSet(TenantModelViewSet):
         
         # Handle foreign key fields with _id suffix
         data = request.data.copy()
-        for field in ['division', 'uom', 'productstatus']:
+        for field in ['division', 'uom', 'productstatus', 'default_tax_rate_profile']:
             field_id = f'{field}_id'
             if field_id in data:
                 data[field] = data.pop(field_id)
+                
+        # Ensure default_tax_rate_profile is properly handled
+        if 'default_tax_rate_profile' in data:
+            logger.info(f"Found default_tax_rate_profile in request data: {data['default_tax_rate_profile']}")
+            # Make sure it's treated as an integer
+            try:
+                data['default_tax_rate_profile'] = int(data['default_tax_rate_profile'])
+                logger.info(f"Converted default_tax_rate_profile to int: {data['default_tax_rate_profile']}")
+            except (ValueError, TypeError):
+                if data['default_tax_rate_profile'] == '' or data['default_tax_rate_profile'] is None:
+                    data['default_tax_rate_profile'] = None
+                    logger.info("Set empty default_tax_rate_profile to None")
         
         # Generate unique slug and SKU
         name = data.get('name', '')
@@ -248,7 +260,16 @@ class ProductViewSet(TenantModelViewSet):
             uom_id = validated_data.get('uom').id if validated_data.get('uom') else None
             productstatus_id = validated_data.get('productstatus').id if validated_data.get('productstatus') else None
             currency_code_id = validated_data.get('currency_code').id if validated_data.get('currency_code', None) else None
-            default_tax_rate_profile_id = validated_data.get('default_tax_rate_profile').id if validated_data.get('default_tax_rate_profile', None) else None
+            
+            # Debug logging for default_tax_rate_profile
+            logger.info(f"Raw default_tax_rate_profile from request: {request.data.get('default_tax_rate_profile')}")
+            logger.info(f"validated_data keys: {validated_data.keys()}")
+            logger.info(f"default_tax_rate_profile in validated_data: {validated_data.get('default_tax_rate_profile')}")
+            
+            default_tax_rate_profile_id = None
+            if validated_data.get('default_tax_rate_profile'):
+                default_tax_rate_profile_id = validated_data.get('default_tax_rate_profile').id
+                logger.info(f"Setting default_tax_rate_profile_id to: {default_tax_rate_profile_id}")
             
             # Convert JSON fields
             tags_json = Json(tags) if tags else Json([])
@@ -293,7 +314,7 @@ class ProductViewSet(TenantModelViewSet):
                     uom_id,
                     productstatus_id,
                     currency_code_id,
-                    validated_data.get('default_tax_rate_profile_id'),
+                    default_tax_rate_profile_id,  # Use the variable we prepared earlier
                     validated_data.get('is_tax_exempt', False),
                     validated_data.get('display_price', 0),
                     validated_data.get('compare_at_price', 0),

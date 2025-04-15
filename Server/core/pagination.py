@@ -17,7 +17,7 @@ class CustomPageNumberPagination(PageNumberPagination):
     are more common in frontend frameworks and to provide a more consistent
     response structure.
     """
-    page_size = 10
+    page_size = 50
     page_size_query_param = 'page_size'
     max_page_size = 100
     page_query_param = 'page'

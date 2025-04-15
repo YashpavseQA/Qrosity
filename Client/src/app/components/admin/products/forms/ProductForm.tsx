@@ -123,6 +123,17 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
         });
     }, [productId, currentProductId, viewMode, isEditMode, defaultValues]);
     
+    // Set category and subcategory when default values change
+    useEffect(() => {
+        if (defaultValues) {
+            setSelectedCategory(typeof defaultValues.category === 'object' ? (defaultValues.category as any)?.id || null : defaultValues.category || null);
+            setSelectedSubcategory(typeof defaultValues.subcategory === 'object' ? (defaultValues.subcategory as any)?.id || null : defaultValues.subcategory || null);
+        }
+    }, [defaultValues]);
+    
+    // State for subcategory selection
+    const [selectedSubcategory, setSelectedSubcategory] = useState<number | null>(null);
+    
     // Draft state logic
     const [draftProductId, setDraftProductId] = useState<number | null>(
         defaultValues?.publication_status === PublicationStatus.DRAFT && defaultValues?.id ? defaultValues.id : null
@@ -190,17 +201,23 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
     // Map product details to form data
     const mapProductDetailsToFormData = (details: ExtendedProductDetail): FormData => {
         const attributeValues: Record<string, ProductAttributeValue> = {};
-        details.attribute_values?.forEach(av => {
-            attributeValues[av.attribute.id.toString()] = {
-                id: av.id,
-                attribute_id: av.attribute.id,
-                attribute_name: av.attribute.name,
-                attribute_code: av.attribute.code,
-                attribute_type: av.attribute.data_type,
-                value: av.value,
-                use_variant: av.use_variant
-            };
-        });
+        
+        // Safely handle attribute values
+        if (details.attribute_values) {
+            details.attribute_values.forEach(av => {
+                if (av && av.attribute && av.attribute.id) {
+                    attributeValues[av.attribute.id.toString()] = {
+                        id: av.id || 0,
+                        attribute_id: av.attribute.id,
+                        attribute_name: av.attribute.name || '',
+                        attribute_code: av.attribute.code || '',
+                        attribute_type: av.attribute.data_type || '',
+                        value: av.value,
+                        use_variant: av.use_variant ?? false
+                    };
+                }
+            });
+        }
 
         return {
             // Basic product info
@@ -210,11 +227,11 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
             short_description: details.short_description || '',
             
             // References
-            division_id: details.division?.id || 0,
-            category: details.category?.id || 0,
-            subcategory: details.subcategory?.id || 0,
-            productstatus: details.status?.id || 0,
-            uom_id: details.uom?.id || 0,
+            division_id: typeof details.division === 'object' ? (details.division as any)?.id || 0 : details.division || 0,
+            category: typeof details.category === 'object' ? (details.category as any)?.id || 0 : details.category || 0,
+            subcategory: typeof details.subcategory === 'object' ? (details.subcategory as any)?.id || 0 : details.subcategory || 0,
+            productstatus: typeof details.productstatus === 'object' ? (details.productstatus as any)?.id || 0 : details.productstatus || 0,
+            uom_id: typeof details.uom === 'object' ? (details.uom as any)?.id || 0 : details.uom || 0,
             
             // Status and flags
             is_active: details.is_active ?? true,
@@ -223,9 +240,13 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
             
             // Pricing
             currency_code: details.currency_code || 'USD',
-            display_price: details.display_price || 0,
-            compare_at_price: details.compare_at_price || null,
-            default_tax_rate_profile: details.default_tax_rate_profile?.id || null,
+            display_price: typeof details.display_price === 'number' ? details.display_price :
+                details.display_price ? parseFloat(details.display_price) : 0,
+            compare_at_price: typeof details.compare_at_price === 'number' ? details.compare_at_price :
+                details.compare_at_price ? parseFloat(details.compare_at_price) : null,
+            default_tax_rate_profile: typeof details.default_tax_rate_profile === 'object' ? 
+                (details.default_tax_rate_profile as any)?.id || null : 
+                details.default_tax_rate_profile || null,
             
             // Inventory
             sku: details.sku || '',
@@ -247,7 +268,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
             // Attributes
             attributes: attributeValues,
             attribute_values_input: details.attribute_values
-                ?.filter(av => av.value !== null && av.value !== undefined)
+                ?.filter(av => av && av.attribute && av.attribute.id && av.value !== null && av.value !== undefined)
                 .map(av => ({
                     attribute: av.attribute.id,
                     value: av.value
@@ -270,20 +291,25 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
     const methods = useForm<FormData>({
         mode: 'onBlur',
         resolver: zodResolver(formSchema) as unknown as HookFormResolver<FormData>,
-        defaultValues: defaultValues ? mapProductDetailsToFormData(defaultValues) : {
+        defaultValues: defaultValues ? {
+            ...mapProductDetailsToFormData(defaultValues),
+            category: typeof defaultValues.category === 'object' ? (defaultValues.category as any)?.id || 0 : defaultValues.category,
+            subcategory: typeof defaultValues.subcategory === 'object' ? (defaultValues.subcategory as any)?.id || 0 : defaultValues.subcategory,
+            productstatus: typeof defaultValues.status === 'object' ? (defaultValues.status as any)?.id || 0 : defaultValues.status || 0
+        } : {
             name: '',
+            category: selectedCategory || 0,
+            subcategory: selectedSubcategory || 0,
             product_type: ProductType.REGULAR,
             description: '',
             short_description: '',
             division_id: 0,
-            category: 0,
-            subcategory: 0,
             productstatus: 0,
             uom_id: 0,
             is_active: true,
-            allow_reviews: true,
             is_tax_exempt: false,
-            currency_code: '',
+            allow_reviews: true,
+            currency_code: 'USD',
             display_price: 0,
             compare_at_price: null,
             default_tax_rate_profile: null,
@@ -298,20 +324,19 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
             seo_title: '',
             seo_description: '',
             seo_keywords: '',
-            faqs: [],
             tags: [],
-            temp_images: [],
-            parent_temp_images: [],
-            variant_defining_attributes: [],
-            attribute_groups: [],
+            faqs: [],
             attributes: {},
             attribute_values_input: [],
+            variant_defining_attributes: [],
+            attribute_groups: [],
+            temp_images: [],
+            parent_temp_images: [],
+            organizationTags: [],
             publication_status: PublicationStatus.DRAFT,
             slug: ''
         }
     });
-
-    // Watch for form values that affect other fields
     const preOrderAvailable = methods.watch('pre_order_available');
     const productType = methods.watch('product_type');
 
@@ -835,7 +860,7 @@ const ProductForm = ({ productId, onSubmit, defaultValues, isEditMode = false, a
                                         field: 'id',
                                         param: 'category'
                                     }}
-                                    value={selectedCategory}
+                                    value={selectedCategory || methods.getValues('category')}
                                 />
                             </Grid>
 

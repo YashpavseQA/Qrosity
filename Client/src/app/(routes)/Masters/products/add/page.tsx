@@ -20,9 +20,6 @@ export default function AddProductPage() {
     <Box sx={{ pb: 10 }}> 
     
           <ProductForm  />
-       
-
-
 
     </Box>
   );

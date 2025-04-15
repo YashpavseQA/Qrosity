@@ -27,6 +27,7 @@ import { formatDateTime } from '@/app/utils/dateUtils';
 import CustomDataGrid from '@/app/components/common/CustomDataGrid';
 import ContentCard from '@/app/components/common/ContentCard';
 import ConfirmDialog from '@/app/components/common/ConfirmDialog';
+import { useProductContext } from '@/app/contexts/ProductContext';
 
 // Types and Interfaces
 interface FilterOption {
@@ -206,6 +207,7 @@ export default function ProductsPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const { notification, showSuccess, showError, hideNotification } = useNotification();
+  const { setSelectedProductId } = useProductContext();
   
   // State management
   const [searchTerm, setSearchTerm] = useState('');
@@ -214,7 +216,7 @@ export default function ProductsPage() {
   const [activeFilters, setActiveFilters] = useState<FilterState[]>([]);
   const [paginationModel, setPaginationModel] = useState<PaginationModel>({
     page: 0,
-    pageSize: 10
+    pageSize: 50
   });
   const [visibleColumns, setVisibleColumns] = useState<string[]>(
     columnOptions.map(col => col.field)
@@ -236,7 +238,7 @@ export default function ProductsPage() {
     refetch
   } = useFetchProducts({
     search: searchTerm,
-    page: paginationModel.page,
+    page: paginationModel.page + 1, // Convert from 0-based to 1-based for API
     pageSize: paginationModel.pageSize,
   });
 
@@ -256,22 +258,22 @@ export default function ProductsPage() {
 
   // Calculate tab counts
   const tabCounts = useMemo(() => {
-    const total = processedRows.length;
+    const total = productsData?.count || 0; // Ensure it's always a number
     const active = processedRows.filter(row => row.is_active).length;
-    const inactive = total - active;
+    const inactive = processedRows.filter(row => !row.is_active).length;
     
     return {
       all: total,
       active,
       inactive
     };
-  }, [processedRows]);
+  }, [processedRows, productsData?.count]);
 
   // Update tab options with counts
   const currentTabOptions = useMemo(() => {
     return tabOptions.map(tab => ({
       ...tab,
-      count: tabCounts[tab.value as keyof typeof tabCounts]
+      count: tabCounts[tab.value as keyof typeof tabCounts] || 0 // Ensure count is always a number
     }));
   }, [tabCounts]);
 
@@ -504,12 +506,6 @@ export default function ProductsPage() {
       width: 100,
       getActions: (params) => [
         <GridActionsCellItem
-          key="edit"
-          icon={<EditIcon />}
-          label={t('common.edit')}
-          onClick={() => router.push(`/Masters/products/${params.id}/edit`)}
-        />,
-        <GridActionsCellItem
           key="delete"
           icon={<DeleteIcon />}
           label={t('common.delete')}
@@ -565,11 +561,19 @@ export default function ProductsPage() {
             columns={columns.filter(col => visibleColumns.includes(col.field))}
             paginationModel={paginationModel}
             onPaginationModelChange={setPaginationModel}
-            pageSizeOptions={[5, 10, 25]}
+            pageSizeOptions={[5, 10, 25 ,50]}
             checkboxSelection={true}
-            disableRowSelectionOnClick
+            disableRowSelectionOnClick={false}
             autoHeight
             loading={isLoading}
+            // Server-side pagination properties
+            rowCount={productsData?.count || 0}
+            paginationMode="server"
+            onRowClick={(params) => {
+              console.log('Row clicked:', params.row);
+              setSelectedProductId(params.row.id);
+              router.push('/Masters/products/edit');
+            }}
           />
         ) : (
           // Grid view can be implemented here

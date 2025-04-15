@@ -10,6 +10,7 @@ from products.models import (
     KitComponent, ProductAttributeMultiValue,
     PublicationStatus
 )
+from pricing.models import TaxRateProfile
 from products.catalogue.models import (
     Category, Subcategory, Division,
     UnitOfMeasure, ProductStatus
@@ -174,6 +175,35 @@ class ProductSerializer(serializers.ModelSerializer):
     productstatus_details = SimpleProductStatusSerializer(source='productstatus', read_only=True)
     created_by_details = SimpleUserSerializer(source='created_by', read_only=True)
     updated_by_details = SimpleUserSerializer(source='updated_by', read_only=True)
+    
+    # Add explicit field for default_tax_rate_profile
+    default_tax_rate_profile = serializers.PrimaryKeyRelatedField(
+        queryset=TaxRateProfile.objects.all(),
+        required=False,
+        allow_null=True,
+        error_messages={
+            'does_not_exist': 'Tax rate profile with id {pk_value} does not exist.',
+            'incorrect_type': 'Tax rate profile must be a number.'
+        }
+    )
+    
+    def validate_default_tax_rate_profile(self, value):
+        """
+        Validate the default_tax_rate_profile field.
+        """
+        logger.info(f"Validating default_tax_rate_profile: {value}")
+        return value
+    
+    def to_internal_value(self, data):
+        # Log the incoming data for debugging
+        logger.info(f"ProductSerializer.to_internal_value received: {data}")
+        if 'default_tax_rate_profile' in data:
+            logger.info(f"default_tax_rate_profile value: {data['default_tax_rate_profile']}")
+        
+        # Call the parent method
+        result = super().to_internal_value(data)
+        logger.info(f"ProductSerializer.to_internal_value result: {result}")
+        return result
     """
     Serializer for the Product model.
     

@@ -78,6 +78,11 @@ export interface ProductListItem {
 
 export interface ProductDetail {
   id: number;
+  /**
+   * productstatus is used by the backend for product status reference (id or object)
+   */
+  productstatus?: number | { id: number; name: string; description?: string };
+
   name: string;
   product_type: ProductType;
   description: string;
